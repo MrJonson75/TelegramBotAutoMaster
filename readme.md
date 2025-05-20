@@ -1,106 +1,126 @@
+Here's a professional README.md in English following your project structure:
+
 ```markdown
-# 🤖 АвтоМастер Бот (AutoMaster Bot)
+# 🚗 AutoMaster Bot - Telegram Bot for Auto Repair Shops
 
-**Telegram-бот для частной автомастерской с AI-ассистентом**
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![Aiogram](https://img.shields.io/badge/Aiogram-2.x-green.svg)
+![OpenAI](https://img.shields.io/badge/OpenAI-ChatGPT-brightgreen.svg)
 
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
-[![Aiogram](https://img.shields.io/badge/Aiogram-2.x-green.svg)](https://docs.aiogram.dev/)
-[![OpenAI](https://img.shields.io/badge/OpenAI-ChatGPT-brightgreen.svg)](https://openai.com/)
+A comprehensive Telegram bot solution for independent auto mechanics to manage appointments, provide preliminary diagnostics via photo, and answer common questions using AI.
 
-## 🚀 Возможности
+## ✨ Key Features
 
-✅ **Умная запись на прием** с календарем доступных дат  
-✅ **Диагностика по фото** - клиенты могут отправить фото проблемы  
-✅ **AI-помощник** на базе ChatGPT для ответов на частые вопросы  
-✅ **Управление графиком** для мастера через Telegram  
-✅ **Автоуведомления** о записях и напоминания  
+- **Smart Booking System** with real-time availability
+- **Photo Diagnostics** for preliminary assessments
+- **AI Assistant** powered by ChatGPT
+- **Master Control Panel** via Telegram
+- **Automated Notifications** and reminders
 
-## ⚙️ Установка
+## 🛠 Project Structure
 
-1. Клонируйте репозиторий:
-```bash
-git clone https://github.com/ваш-аккаунт/automaste-bot.git
-cd automaste-bot
+```
+autorepair-bot/
+├── main.py                # Bot entry point
+├── config.py              # Configuration and secrets
+├── database.py            # SQLite database operations
+├── keyboards.py           # Interactive keyboards
+├── gpt_helper.py          # ChatGPT integration
+├── handlers/              # Message handlers
+│   ├── __init__.py
+│   ├── common.py          # Basic commands (start, help)
+│   ├── booking.py         # Appointment management
+│   ├── photo_diagnostic.py # Photo diagnostics
+│   └── admin.py           # Master commands
+└── utils/                 # Utility modules
+    ├── logger.py          # Logging configuration
+    ├── notifications.py   # Notification system
+    └── storage.py         # Media storage handling
 ```
 
-2. Установите зависимости:
+## 🚀 Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/your-username/autorepair-bot.git
+cd autorepair-bot
+```
+
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Создайте файл `.env` и заполните:
-```ini
-BOT_TOKEN=ваш_telegram_bot_token
-OPENAI_API_KEY=ваш_openai_key
-MASTER_CHAT_ID=ваш_chat_id
+3. Configure environment:
+```bash
+cp .env.example .env
+# Edit .env with your credentials
 ```
 
-4. Инициализируйте БД:
+4. Initialize database:
 ```bash
 python database.py
 ```
 
-5. Запустите бота:
+5. Start the bot:
 ```bash
 python main.py
 ```
 
-## 🛠 Структура проекта
+## 🔧 Configuration
 
-```
-automaste-bot/
-├── main.py                - Главный скрипт бота
-├── config.py              - Конфигурационные параметры
-├── database.py            - Работа с SQLite базой
-├── gpt_helper.py          - Интеграция с ChatGPT
-├── keyboards.py           - Клавиатуры бота
-├── handlers/              - Обработчики сообщений
-│   ├── common.py          - Основные команды
-│   ├── booking.py         - Логика записи
-│   ├── photo_diagnostic.py- Обработка фото
-│   └── admin.py           - Команды мастера
-└── requirements.txt       - Зависимости
-```
+Edit `config.py` for:
+- Business hours
+- Service offerings
+- Pricing
+- AI response templates
 
-## 📝 Использование
+## 💻 Usage
 
-### Для клиентов:
-- /start - Главное меню
-- "🗓 Записаться" - Выбор услуги и даты
-- "🖼 Диагностика по фото" - Отправить фото проблемы
-- "❓ Задать вопрос" - Получить консультацию
+### For Clients:
+- `/start` - Main menu
+- "📅 Book Appointment" - Schedule service
+- "📸 Photo Diagnostics" - Submit issue photos
+- "❓ Quick Question" - Get AI-assisted answer
 
-### Для мастера:
-- /schedule - Просмотр записей
-- /stats - Статистика
-- /broadcast - Рассылка клиентам
+### For Master:
+- `/schedule` - View appointments
+- `/today` - Today's workload
+- `/stats` - Business statistics
+- `/notify` - Send broadcast message
 
-## 🌟 Особенности
+## 🤖 AI Integration
 
-🔹 **Автоответчик на базе ChatGPT**:
+The bot uses ChatGPT for:
+- Answering technical questions
+- Generating preliminary diagnostics
+- Providing service explanations
+
+Example implementation:
 ```python
-# Пример работы AI-помощника
-response = await ask_gpt("Стук в передней подвеске?")
-# Возвращает: "Возможны проблемы с шаровыми опорами или сайлентблоками. Рекомендую диагностику."
+# gpt_helper.py
+async def get_ai_response(question: str) -> str:
+    """Get vehicle-specific advice from ChatGPT"""
+    prompt = f"As an auto mechanic, respond to this car question: {question}"
+    return await openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}]
+    )
 ```
 
-🔹 **Гибкая система записи**:
-- Интеллектуальное расписание
-- Автоподтверждение
-- Напоминания за 24 и 2 часа
+## 📈 Roadmap
 
-## 📈 Планы развития
+- [ ] Payment integration
+- [ ] Customer loyalty system
+- [ ] Advanced analytics dashboard
+- [ ] Multi-language support
 
-- [ ] Интеграция с платежами
-- [ ] Система лояльности
-- [ ] Мобильное приложение для мастера
+## 🤝 Contributing
 
-## 🤝 Как помочь проекту
+1. Fork the project
+2. Create your feature branch
+3. Submit a pull request
 
-1. Форкайте репозиторий
-2. Создавайте пул-реквесты
-3. Сообщайте о багах в Issues
+## 📜 License
 
-## 📜 Лицензия
-
-MIT License. Подробнее в файле [LICENSE](LICENSE).
+MIT - See [LICENSE](LICENSE) for details
