@@ -1,126 +1,125 @@
-Here's a professional README.md in English following your project structure:
-
-```markdown
-# 🚗 AutoMaster Bot - Telegram Bot for Auto Repair Shops
-
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![Aiogram](https://img.shields.io/badge/Aiogram-2.x-green.svg)
-![OpenAI](https://img.shields.io/badge/OpenAI-ChatGPT-brightgreen.svg)
-
-A comprehensive Telegram bot solution for independent auto mechanics to manage appointments, provide preliminary diagnostics via photo, and answer common questions using AI.
-
-## ✨ Key Features
-
-- **Smart Booking System** with real-time availability
-- **Photo Diagnostics** for preliminary assessments
-- **AI Assistant** powered by ChatGPT
-- **Master Control Panel** via Telegram
-- **Automated Notifications** and reminders
-
-## 🛠 Project Structure
+### **Структура проекта Telegram-бота для автомастерской**  
 
 ```
-autorepair-bot/
-├── main.py                # Bot entry point
-├── config.py              # Configuration and secrets
-├── database.py            # SQLite database operations
-├── keyboards.py           # Interactive keyboards
-├── gpt_helper.py          # ChatGPT integration
-├── handlers/              # Message handlers
-│   ├── __init__.py
-│   ├── common.py          # Basic commands (start, help)
-│   ├── booking.py         # Appointment management
-│   ├── photo_diagnostic.py # Photo diagnostics
-│   └── admin.py           # Master commands
-└── utils/                 # Utility modules
-    ├── logger.py          # Logging configuration
-    ├── notifications.py   # Notification system
-    └── storage.py         # Media storage handling
+📦 AutoMasterBot  
+├── 📂 config  
+│   ├── __init__.py  
+│   ├── config.py          # Токен бота, настройки, константы  
+│   └── services.py       # Услуги и их параметры (цена, описание)  
+│  
+├── 📂 handlers  
+│   ├── __init__.py       # Импорт всех роутеров  
+│   ├── common.py         # Основные команды (/start, меню)  
+│   ├── services.py       # Услуги без записи  (Не реализована запись на прием)
+│   ├── booking.py        # Запись на прием (будет в будущем)  
+│   ├── photo_diagnostic.py # Оценка проблемы по фото (будет в будущем) 
+│   └── admin.py          # Админ-панель (будет в будущем)  
+│  
+├── 📂 keyboards  
+│   ├── __init__.py  
+│   ├── main_kb.py        # Главное меню  
+│   ├── services_kb.py    # Клавиатуры для услуг  
+│   └── diagnostic_kb.py  # Кнопки для диагностики (будет в будущем)  
+│
+├── 📂 media/                     # (НОВОЕ) Директория для медиафайлов
+│   └── images/                   # Изображения (логотипы, примеры работ)  
+├── 📂 utils  
+│   ├── __init__.py  
+│   ├── logger.py         # Логирование  
+│   ├── misc.py           # Вспомогательные функции  
+│   ├── notifications.py  # Уведомления  (будет в будущем)
+│   └── storage.py        # Хранение файлов  (будет в будущем)
+│  
+├── 📂 gpt_helper  
+│   ├── __init__.py  
+│   └── gpt_helper.py     # Интеграция с ChatGPT (будет в будущем)  
+│  
+├── 📜 main.py            # Точка входа
+├── 📜 database.py        # База данных клиентов (будет в будущем) 
+├── 📜 requirements.txt   # Зависимости  
+└── 📜 README.md          # Описание проекта  (будет в будущем)
 ```
 
-## 🚀 Installation
+---
 
-1. Clone the repository:
-```bash
-git clone https://github.com/your-username/autorepair-bot.git
-cd autorepair-bot
-```
+Вот структурированное описание текущего состояния проекта с пометками реализованного и планируемого функционала:
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+### Текущая реализация проекта (реализовано ✅)
 
-3. Configure environment:
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
+**Ядро системы:**
+- `main.py` - Полноценный запуск бота с обработкой ошибок
+- Конфигурация (`config/`):
+  - `config.py` - Централизованное хранение настроек (токен, пути к медиа)
+  - `services.py` - Каталог услуг с ценами и описаниями
 
-4. Initialize database:
-```bash
-python database.py
-```
+**Обработчики (`handlers/`):**
+- `common.py` - Базовые команды (/start, главное меню)
+- `services.py` - Полный функционал услуг без записи:
+  - Вывод списка услуг
+  - Детальная информация по каждой услуге
+  - Навигация между разделами
 
-5. Start the bot:
-```bash
-python main.py
-```
+**Инфраструктура:**
+- Логирование (`utils/logger.py`):
+  - Запись в файл `bot_log.log`
+  - Вывод в консоль
+  - Форматирование сообщений
+- Медиахранение (`media/images/`) - Базовая структура для изображений
 
-## 🔧 Configuration
+**Интерфейс:**
+- Клавиатуры (`keyboards/`):
+  - `main_kb.py` - Главное меню
+  - `services_kb.py` - Интерактивные клавиатуры для услуг
 
-Edit `config.py` for:
-- Business hours
-- Service offerings
-- Pricing
-- AI response templates
+### Планируемый функционал (в разработке ⚙️)
 
-## 💻 Usage
+**Основные модули:**
+1. `handlers/booking.py` - Система записи:
+   - Выбор даты/времени
+   - Подтверждение записи
+   - Напоминания
 
-### For Clients:
-- `/start` - Main menu
-- "📅 Book Appointment" - Schedule service
-- "📸 Photo Diagnostics" - Submit issue photos
-- "❓ Quick Question" - Get AI-assisted answer
+2. `handlers/photo_diagnostic.py` - Диагностика по фото:
+   - Прием и анализ изображений
+   - Предварительная оценка проблем
+   - Хранение фото в `media/images/diagnostics/`
 
-### For Master:
-- `/schedule` - View appointments
-- `/today` - Today's workload
-- `/stats` - Business statistics
-- `/notify` - Send broadcast message
+3. `handlers/admin.py` - Админ-панель:
+   - Управление записями
+   - Редактирование услуг
+   - Статистика
 
-## 🤖 AI Integration
+**Технические улучшения:**
+- `database.py` - Система хранения данных:
+  - Клиенты
+  - Записи
+  - История обращений
 
-The bot uses ChatGPT for:
-- Answering technical questions
-- Generating preliminary diagnostics
-- Providing service explanations
+- `utils/storage.py` - Управление медиа:
+  - Организация фото
+  - Автоочистка старых файлов
 
-Example implementation:
-```python
-# gpt_helper.py
-async def get_ai_response(question: str) -> str:
-    """Get vehicle-specific advice from ChatGPT"""
-    prompt = f"As an auto mechanic, respond to this car question: {question}"
-    return await openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
-    )
-```
+- `gpt_helper/` - Интеграция AI:
+  - Текстовые ответы на вопросы
+  - Анализ фото (GPT-4 Vision)
 
-## 📈 Roadmap
+**Дополнительно:**
+- `utils/notifications.py` - Система уведомлений:
+  - Напоминания о записи
+  - Уведомления мастера
+- `keyboards/diagnostic_kb.py` - Спецклавиатуры для диагностики
 
-- [ ] Payment integration
-- [ ] Customer loyalty system
-- [ ] Advanced analytics dashboard
-- [ ] Multi-language support
+### Текущие технические характеристики
+- **Стек:** Python 3.10+, aiogram 3.x
+- **Хранение:** SQLite (готово к переходу на PostgreSQL)
+- **Логирование:** Файловое + консольное
+- **Обработка ошибок:** Полный цикл отлова исключений
 
-## 🤝 Contributing
+### Необходимые следующие шаги
+1. Реализация модуля записи (`booking.py`)
+2. Интеграция системы хранения (`database.py`)
+3. Настройка GPT-ассистента (`gpt_helper.py`)
+4. Разработка админ-интерфейса
 
-1. Fork the project
-2. Create your feature branch
-3. Submit a pull request
+Проект находится на стадии активной разработки с готовым базовым функционалом. Все запланированные модули имеют четкие спецификации и готовы к поэтапной реализации.
 
-## 📜 License
-
-MIT - See [LICENSE](LICENSE) for details

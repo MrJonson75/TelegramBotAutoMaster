@@ -1,25 +1,12 @@
-import os
-
 from aiogram.types import FSInputFile
-from dotenv import load_dotenv
-load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-MASTER_CHAT_ID = 5668406128  # Ваш ID в Telegram
 
-# Часы работы
-WORK_HOURS = {
-    "Пн-Пт": "10:00 - 18:00",
-    "Сб": "выходной",
-    "Вс": "выходной"
-}
 
-# Адрес
-ADRES = "г.Мытищи, ул.Стрелковая, д.16"
+
 
 # Константы для медиа
-SERVICES_PHOTO = FSInputFile("media/image/services.jpg")
-DEFAULT_PHOTO = FSInputFile("media/image/default_service.jpg")
+SERVICES_PHOTO = FSInputFile("../media/image/services.jpg")
+DEFAULT_PHOTO = FSInputFile("../media/image/default_service.jpg")
 
 # Основные услуги без записи
 SERVICES = {
@@ -51,20 +38,3 @@ SERVICES = {
 
     # Остальные услуги...
 }
-
-
-
-# Добавляем настройки OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GPT_MODEL = "gpt-3.5-turbo"  # Или другой доступный
-
-# Шаблон для ChatGPT (чтобы отвечал в нужном стиле)
-GPT_PROMPT = """  
-Ты помощник автослесаря. Отвечай кратко и по делу.  
-Если вопрос не про авторемонт — вежливо отказывайся отвечать.  
-
-Примеры ответов:  
-- "Стук при торможении? Скорее всего изношены колодки или диски."  
-- "Замена масла занимает ~30 минут."  
-- "По фото сложно точно определить — лучше приезжайте на диагностику."  
-"""

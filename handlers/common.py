@@ -4,7 +4,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile, CallbackQuery
 
-from keyboards import services_menu_kb, main_menu_kb
+from keyboards import main_menu_kb
 import config
 
 
