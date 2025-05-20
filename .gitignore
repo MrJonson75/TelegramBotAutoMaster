@@ -1,0 +1,42 @@
+
+# Файлы word
+*.docx
+*.pdf
+*.png
+
+#Файлы уроков
+learn*.*
+
+
+# Байткод
+*.pyc
+**/__pycache__/
+*.pyo
+*.pyd
+
+
+
+# Файлы с паролями и секретами
+.env
+credentials.json
+
+
+# Временные файлы
+*.tmp
+*.swp
+*~
+
+
+# Логи
+logs/*
+*.log
+
+
+# Папки, создаваемые PyCharm
+.idea/
+*.iml
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
