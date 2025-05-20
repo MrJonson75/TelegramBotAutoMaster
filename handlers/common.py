@@ -44,16 +44,6 @@ async def cmd_start(message: Message):
     )
 
 
-
-@comm_router.message(F.text == "🔧 Услуги без записи")
-async def show_services(message: Message):
-    services = config.SERVICES.keys()  # Получаем из БД
-    await message.answer(
-        "Выберите услугу:",
-        reply_markup=services_menu_kb(services)
-    )
-
-
 @comm_router.message(F.text == "↩️ Назад")
 @comm_router.callback_query(F.data == "back_to_main")
 async def back_to_main(update: Union[Message, CallbackQuery]):

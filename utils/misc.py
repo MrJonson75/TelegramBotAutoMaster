@@ -1,5 +1,5 @@
 from datetime import datetime
-from main import logger
+from utils.logger import logger
 
 def on_start(bot):
     """

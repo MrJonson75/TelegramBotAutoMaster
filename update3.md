@@ -59,20 +59,22 @@ async def ask_gpt(question: str, context: str = "") -> str:
 
 ---
 
-### **3. Модернизируем обработчик вопросов (`handlers/common.py`)**  
-```python
-from aiogram import types  
-from gpt_helper import ask_gpt  
+### **3. Модернизируем обработчик вопросов (`handlers/common.py`)**
 
-async def handle_question(message: types.Message):  
+```python
+from aiogram import types
+from utils.gpt_helper import ask_gpt
+
+
+async def handle_question(message: types.Message):
     # Если мастер онлайн — пересылаем ему вопрос  
-    if is_master_online():  
-        await bot.forward_message(MASTER_CHAT_ID, message.chat.id, message.message_id)  
-        await message.answer("Мастер ответит вам лично!")  
-    else:  
+    if is_master_online():
+        await bot.forward_message(MASTER_CHAT_ID, message.chat.id, message.message_id)
+        await message.answer("Мастер ответит вам лично!")
+    else:
         # Используем ChatGPT для автоматического ответа  
-        gpt_response = await ask_gpt(message.text)  
-        await message.answer(f"🔧 Автоответчик:\n{gpt_response}\n\n"  
+        gpt_response = await ask_gpt(message.text)
+        await message.answer(f"🔧 Автоответчик:\n{gpt_response}\n\n"
                              "Если нужен точный диагноз — пришлите фото.")  
 ```  
 
