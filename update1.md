@@ -9,22 +9,7 @@
 2. После загрузки фото: "Опишите проблему коротко (например: 'стучит при торможении')"
 3. Подтверждение: "Ваши фото и описание сохранены. Мастер ответит в течение 2 часов"
 
-**3. Техническая реализация:**
-```python
-@dp.message_handler(content_types=['photo'])
-async def handle_photos(message: Message):
-    # Сохранение фото во временную папку
-    photo_id = message.photo[-1].file_id
-    file = await bot.get_file(photo_id)
-    file_path = file.file_path
-    
-    # Сохранение в БД с привязкой к пользователю
-    save_to_db(user_id=message.from_user.id, 
-              photo_path=file_path,
-              description="")  # Пока без описания
 
-    await message.answer("Фото принято. Теперь опишите проблему:")
-```
 
 **4. Хранение данных:**
 - В таблицу БД `pre_diagnostics` добавляем поля:
