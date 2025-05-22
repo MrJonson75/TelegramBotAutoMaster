@@ -1,28 +1,39 @@
 from datetime import datetime
 from utils.logger import logger
+from aiogram import Bot
 
-def on_start(bot):
+async def on_start(bot: Bot):
     """
-    Функция, вызываемая при запуске бота.
+    Асинхронная функция, вызываемая при запуске бота.
 
-    Выводит в консоль текущие дату и время начала работы бота.
-    Используется как обработчик события startup в aiogram.
+    Логирует запуск бота и отправляет уведомление администратору (если задан).
     """
-    logger.info(f"Бот запущен, ID: {bot.id}")
-    # Получаем текущее время и форматируем его в строку
     now = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
-    # Выводим сообщение о запуске бота
-    print(f'Bot started at {now}')
+    logger.info(f"Бот запущен, ID: {bot.id}, время: {now}")
 
+    # Опционально: отправка уведомления администратору
+    from config import config
+    if hasattr(config, 'ADMIN_ID'):
+        try:
+            await bot.send_message(config.ADMIN_ID, f"Бот запущен в {now}")
+            logger.info(f"Уведомление о запуске отправлено администратору (ID: {config.ADMIN_ID})")
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления администратору: {str(e)}")
 
-def on_shutdown():
+async def on_shutdown(bot: Bot):
     """
-    Функция, вызываемая при остановке бота.
+    Асинхронная функция, вызываемая при остановке бота.
 
-    Выводит в консоль текущие дату и время остановки бота.
-    Используется как обработчик события shutdown в aiogram.
+    Логирует остановку бота и отправляет уведомление администратору (если задан).
     """
-    # Получаем текущее время и форматируем его в строку
     now = datetime.now().strftime('%H:%M:%S %d/%m/%Y')
-    # Выводим сообщение об остановке бота
-    print(f'Bot is down at {now}')
+    logger.info(f"Бот остановлен, время: {now}")
+
+    # Опционально: отправка уведомления администратору
+    from config import config
+    if hasattr(config, 'ADMIN_ID'):
+        try:
+            await bot.send_message(config.ADMIN_ID, f"Бот остановлен в {now}")
+            logger.info(f"Уведомление об остановке отправлено администратору (ID: {config.ADMIN_ID})")
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления администратору: {str(e)}")

@@ -1,59 +1,55 @@
-from typing import Union
-
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile, CallbackQuery
+from aiogram.types import Message, FSInputFile
+from keyboards.main_kb import main_menu_kb
+from config.config import PHOTO_PATHS
 
-from keyboards import main_menu_kb
-import config
+common_router = Router()
 
-
-comm_router = Router()
-
-
-@comm_router.message(Command("start"))
+# Обработчик команды /start
+@common_router.message(Command("start"))
 async def cmd_start(message: Message):
-    """Обработчик команды /start с приветствием и главным меню"""
     welcome_text = (
-        "🚗 <b>Добро пожаловать в автомастерскую!</b>\n\n"
-        "Я ваш помощник в организации ремонта автомобиля.\n"
-        "С моей помощью вы можете:\n"
-        "• Узнать о мастере и его опыте\n"
-        "• Посмотреть услуги и цены\n"
-        "• Записаться на удобное время\n"
-        "• Предварительно оценить проблему по фото\n"
-        "• Получить быстрый ответ на вопрос\n\n"
-        "Выберите действие в меню ниже 👇"
+        "Добро пожаловать в RemDiesel 🚚!\n"
+        "Я помогу вам:\n"
+        "- Записаться на техническое обслуживание или ремонт\n"
+        "- Провести диагностику по фото\n"
+        "- Просмотреть ваши записи\n"
+        "- Узнать о мастере и контактах\n"
+        "Выберите действие:"
     )
-
     await message.answer_photo(
-        photo=FSInputFile("media/image/welcome.jpg"),  # Замените на реальное фото
+        photo=FSInputFile(PHOTO_PATHS["welcome"]),
         caption=welcome_text,
-        reply_markup=main_menu_kb(),
-        parse_mode="html",
+        reply_markup=main_menu_kb()
     )
 
-    # Отправляем дополнительное сообщение с важной информацией
-    await message.answer(
-        f"ℹ️ <b>Часы работы:</b>\n"
-        f"Пн-Пт: {config.WORK_HOURS["Пн-Пт"]}\n"
-        f"Сб: {config.WORK_HOURS["Сб"]}\n"
-        f"Вс: {config.WORK_HOURS["Вс"]}\n\n"
-        f"📍 <b>Адрес:</b> {config.ADRES}",
-        parse_mode="HTML"
+# Обработчик текстового сообщения "📞 Контакты/как проехать"
+@common_router.message(F.text == "📞 Контакты/как проехать")
+async def show_contacts(message: Message):
+    contacts_text = (
+        "📞 Свяжитесь с нами:\n"
+        "Телефон: +7 (999) 123-45-67\n"
+        "Email: support@remdiesel.ru\n"
+        "Адрес: г. Москва, ул. Автозаводская, д. 10\n"
+        "Как проехать: м. Автозаводская, 5 мин пешком"
+    )
+    await message.answer_photo(
+        photo=FSInputFile(PHOTO_PATHS["contacts"]),
+        caption=contacts_text,
+        reply_markup=main_menu_kb()
     )
 
-
-@comm_router.message(F.text == "↩️ Назад")
-@comm_router.callback_query(F.data == "back_to_main")
-async def back_to_main(update: Union[Message, CallbackQuery]):
-    if isinstance(update, CallbackQuery):
-        message = update.message
-        await update.answer()
-    else:
-        message = update
-
-    await message.answer(
-        "Главное меню:",
+# Обработчик текстового сообщения "О мастере"
+@common_router.message(F.text == "О мастере")
+async def show_about_master(message: Message):
+    about_text = (
+        "🛠 Мастер Иван - эксперт по дизельным автомобилям с 15-летним опытом.\n"
+        "Специализация: диагностика, ремонт двигателей, ТО.\n"
+        "Посмотрите фото и видео наших работ!"
+    )
+    await message.answer_photo(
+        photo=FSInputFile(PHOTO_PATHS["about_master"]),
+        caption=about_text,
         reply_markup=main_menu_kb()
     )
