@@ -1,17 +1,20 @@
 TelegramBotAutoMaster/
 ├── config/
-│   ├── __init__.py          # Новый файл: from .config import Config, __all__ = ['Config']
-│   └── config.py            # Содержит класс Config с методом get_photo_path
+│   ├── __init__.py
+│   └── config.py
 ├── utils/
-│   ├── vision_api.py        # Интеграция с Yandex Vision API
-│   ├── gpt_helper.py        # Интеграция с Yandex GPT
-│   └── logger.py            # Настройка логирования
+│   ├── __init__.py
+│   ├── vision_api.py
+│   ├── gpt_helper.py
+│   └── logger.py
 ├── handlers/
-│   ├── __init__.py          # Пустой или импортирует обработчики
-│   ├── common.py            # Общие обработчики
-│   └── photo_diagnostic.py  # Обработчик диагностики
+│   ├── __init__.py
+│   ├── common.py
+│   ├── photo_diagnostic.py
+│   ├── service_booking.py
+│   └── my_bookings.py  # Новый
 ├── keyboards/
-│   └── main_kb.py           # Основная клавиатура main_menu_kb
+│   └── main_kb.py
 ├── photos/
 │   ├── welcome.jpg
 │   ├── contacts.jpg
@@ -19,11 +22,13 @@ TelegramBotAutoMaster/
 │   ├── bookings.jpg
 │   ├── master.jpg
 │   ├── services.jpg
-│   └── booking.jpg
+│   ├── booking.jpg
+│   └── photo_result_diagnostic.jpg
 ├── media/
 │   └── diagnostics/
-│       └── cache.txt        # Кэш результатов анализа
-├── .env                     # Переменные окружения
-├── bot.log                  # Логи бота
-├── requirements.txt         # Зависимости
-└── main.py                  # Главный файл бота
+│       └── cache.txt
+├── .env
+├── bot.log
+├── database.py
+├── requirements.txt
+└── main.py
