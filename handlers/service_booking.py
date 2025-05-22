@@ -1,7 +1,9 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.base import StorageKey
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from config import Config
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
@@ -30,6 +32,8 @@ class BookingStates(StatesGroup):
     AwaitingDate = State()
     AwaitingTime = State()
     AwaitingMasterResponse = State()
+    AwaitingMasterTime = State()
+    AwaitingUserConfirmation = State()
 
 def validate_phone(phone: str) -> bool:
     """Проверяет формат номера телефона."""
@@ -61,19 +65,25 @@ async def notify_master(bot, booking: Booking, user: User, auto: Auto):
             f"Время: {booking.time.strftime('%H:%M')}\n"
             f"Подтвердить или отклонить?"
         )
-        await bot.send_message(Config.ADMIN_ID, message, reply_markup=Keyboards.bookings_kb([booking]))
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Подтвердить", callback_data=f"confirm_booking_{booking.id}")],
+            [InlineKeyboardButton(text="Предложить другое время", callback_data=f"reschedule_booking_{booking.id}")],
+            [InlineKeyboardButton(text="Отклонить", callback_data=f"reject_booking_{booking.id}")]
+        ])
+        await bot.send_message(Config.ADMIN_ID, message, reply_markup=keyboard)
+        logger.info(f"Уведомление мастеру отправлено для booking_id={booking.id}")
     except Exception as e:
-        logger.error(f"Ошибка отправки уведомления мастеру: {str(e)}")
+        logger.error(f"Ошибка отправки уведомления мастеру для booking_id={booking.id}: {str(e)}")
 
 async def schedule_reminder(bot, booking: Booking, user: User, auto: Auto):
     """Запланировать напоминание мастеру."""
-    booking_datetime = datetime.combine(booking.date, booking.time)
-    reminder_time = booking_datetime - timedelta(minutes=Config.REMINDER_TIME_MINUTES)
-    now = datetime.now()
-    if reminder_time > now:
-        delay = (reminder_time - now).total_seconds()
-        await asyncio.sleep(delay)
-        try:
+    try:
+        booking_datetime = datetime.combine(booking.date, booking.time)
+        reminder_time = booking_datetime - timedelta(minutes=Config.REMINDER_TIME_MINUTES)
+        now = datetime.now()
+        if reminder_time > now:
+            delay = (reminder_time - now).total_seconds()
+            await asyncio.sleep(delay)
             await bot.send_message(
                 Config.ADMIN_ID,
                 f"Напоминание: Через {Config.REMINDER_TIME_MINUTES} минут запись:\n"
@@ -83,8 +93,9 @@ async def schedule_reminder(bot, booking: Booking, user: User, auto: Auto):
                 f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
                 f"Время: {booking.time.strftime('%H:%M')}"
             )
-        except Exception as e:
-            logger.error(f"Ошибка отправки напоминания мастеру: {str(e)}")
+            logger.info(f"Напоминание мастеру отправлено для booking_id={booking.id}")
+    except Exception as e:
+        logger.error(f"Ошибка отправки напоминания мастеру для booking_id={booking.id}: {str(e)}")
 
 @service_booking_router.message(F.text == "Запись на ТО")
 async def start_booking(message: Message, state: FSMContext):
@@ -317,12 +328,47 @@ async def process_service_selection(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     service_duration = next(s["duration_minutes"] for s in Config.SERVICES if s["name"] == service_name)
-    await state.update_data(service_name=service_name, service_duration=service_duration)
+    await state.update_data(service_name=service_name, service_duration=service_duration, week_offset=0)
     await callback.message.answer(
         "Выберите дату для записи:",
         reply_markup=Keyboards.calendar_kb()
     )
     await state.set_state(BookingStates.AwaitingDate)
+    await callback.answer()
+
+@service_booking_router.callback_query(BookingStates.AwaitingDate, F.data.startswith("prev_week_"))
+async def prev_week_selection(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает переход на предыдущую неделю."""
+    week_offset = int(callback.data.replace("prev_week_", ""))
+    data = await state.get_data()
+    selected_date = data.get("selected_date")
+    await state.update_data(week_offset=week_offset)
+    await callback.message.edit_reply_markup(
+        reply_markup=Keyboards.calendar_kb(selected_date, week_offset)
+    )
+    await callback.answer()
+
+@service_booking_router.callback_query(BookingStates.AwaitingDate, F.data.startswith("next_week_"))
+async def next_week_selection(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает переход на следующую неделю."""
+    week_offset = int(callback.data.replace("next_week_", ""))
+    data = await state.get_data()
+    selected_date = data.get("selected_date")
+    await state.update_data(week_offset=week_offset)
+    await callback.message.edit_reply_markup(
+        reply_markup=Keyboards.calendar_kb(selected_date, week_offset)
+    )
+    await callback.answer()
+
+@service_booking_router.callback_query(BookingStates.AwaitingDate, F.data == "today")
+async def today_selection(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает выбор текущего дня."""
+    await state.update_data(week_offset=0)
+    data = await state.get_data()
+    selected_date = data.get("selected_date")
+    await callback.message.edit_reply_markup(
+        reply_markup=Keyboards.calendar_kb(selected_date, 0)
+    )
     await callback.answer()
 
 @service_booking_router.callback_query(BookingStates.AwaitingDate, F.data.startswith("date_"))
@@ -332,16 +378,17 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext):
     try:
         selected_date = datetime.strptime(date_str, "%Y-%m-%d")
         data = await state.get_data()
+        week_offset = data.get("week_offset", 0)
         with Session() as session:
             time_slots = Keyboards.time_slots_kb(selected_date, data["service_duration"], session)
             if not time_slots.inline_keyboard:
                 await callback.message.answer(
                     "Нет доступных слотов на эту дату. Выберите другую дату:",
-                    reply_markup=Keyboards.calendar_kb(selected_date)
+                    reply_markup=Keyboards.calendar_kb(selected_date, week_offset)
                 )
                 await callback.answer()
                 return
-            await state.update_data(selected_date=selected_date)
+            await state.update_data(selected_date=selected_date, time_offset=0)
             await callback.message.answer(
                 "Выберите время для записи:",
                 reply_markup=time_slots
@@ -349,8 +396,41 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext):
             await state.set_state(BookingStates.AwaitingTime)
             await callback.answer()
     except ValueError:
-        await callback.message.answer("Некорректная дата. Выберите снова:", reply_markup=Keyboards.calendar_kb())
+        data = await state.get_data()
+        week_offset = data.get("week_offset", 0)
+        await callback.message.answer(
+            "Некорректная дата. Выберите снова:",
+            reply_markup=Keyboards.calendar_kb(week_offset=week_offset)
+        )
         await callback.answer()
+
+@service_booking_router.callback_query(BookingStates.AwaitingTime, F.data.startswith("prev_slots_"))
+async def prev_slots_selection(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает переход к предыдущим временным слотам."""
+    time_offset = int(callback.data.replace("prev_slots_", ""))
+    data = await state.get_data()
+    selected_date = data.get("selected_date")
+    service_duration = data.get("service_duration")
+    await state.update_data(time_offset=time_offset)
+    with Session() as session:
+        await callback.message.edit_reply_markup(
+            reply_markup=Keyboards.time_slots_kb(selected_date, service_duration, session, time_offset)
+        )
+    await callback.answer()
+
+@service_booking_router.callback_query(BookingStates.AwaitingTime, F.data.startswith("next_slots_"))
+async def next_slots_selection(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает переход к следующим временным слотам."""
+    time_offset = int(callback.data.replace("next_slots_", ""))
+    data = await state.get_data()
+    selected_date = data.get("selected_date")
+    service_duration = data.get("service_duration")
+    await state.update_data(time_offset=time_offset)
+    with Session() as session:
+        await callback.message.edit_reply_markup(
+            reply_markup=Keyboards.time_slots_kb(selected_date, service_duration, session, time_offset)
+        )
+    await callback.answer()
 
 @service_booking_router.callback_query(BookingStates.AwaitingTime, F.data.startswith("time_"))
 async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot):
@@ -385,7 +465,7 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
                 "Ваша заявка отправлена мастеру. Ожидайте подтверждения.",
                 reply_markup=Keyboards.main_menu_kb()
             )
-            await state.set_state(BookingStates.AwaitingMasterResponse)
+            await state.clear()  # Очищаем состояние после создания записи
             await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка создания записи: {str(e)}")
@@ -410,20 +490,26 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext, bot):
             session.commit()
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
-            await bot.send_message(
-                user.telegram_id,
-                f"Ваша запись подтверждена!\n"
-                f"Услуга: {booking.service_name}\n"
-                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
-                f"Время: {booking.time.strftime('%H:%M')}\n"
-                f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}"
-            )
+            try:
+                await bot.send_message(
+                    user.telegram_id,
+                    f"Ваша запись подтверждена!\n"
+                    f"Услуга: {booking.service_name}\n"
+                    f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                    f"Время: {booking.time.strftime('%H:%M')}\n"
+                    f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}"
+                )
+                logger.info(f"Уведомление о подтверждении отправлено пользователю {user.telegram_id} для booking_id={booking_id}")
+            except TelegramForbiddenError:
+                logger.error(f"Не удалось отправить уведомление пользователю {user.telegram_id}: пользователь заблокировал бота")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления пользователю {user.telegram_id}: {str(e)}")
             await callback.message.edit_text(
                 callback.message.text + "\nСтатус: Подтверждено"
             )
             await callback.answer("Запись подтверждена.")
     except Exception as e:
-        logger.error(f"Ошибка подтверждения записи: {str(e)}")
+        logger.error(f"Ошибка подтверждения записи booking_id={booking_id}: {str(e)}")
         await callback.answer("Ошибка. Попробуйте снова.")
 
 @service_booking_router.callback_query(F.data.startswith("reschedule_booking_"))
@@ -433,9 +519,20 @@ async def reschedule_booking(callback: CallbackQuery, state: FSMContext, bot):
         await callback.answer("Доступ только для мастера.")
         return
     booking_id = int(callback.data.replace("reschedule_booking_", ""))
-    await callback.message.answer("Введите новое время (например, 14:30):")
-    await state.update_data(booking_id=booking_id, master_action="reschedule")
-    await callback.answer()
+    try:
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                await callback.answer("Запись не найдена.")
+                return
+        await state.update_data(booking_id=booking_id, master_action="reschedule")
+        await callback.message.answer("Введите новое время (например, 14:30):")
+        await state.set_state(BookingStates.AwaitingMasterTime)
+        logger.info(f"Мастер запросил новое время для booking_id={booking_id}")
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при запросе нового времени для booking_id={booking_id}: {str(e)}")
+        await callback.answer("Ошибка. Попробуйте снова.")
 
 @service_booking_router.callback_query(F.data.startswith("reject_booking_"))
 async def reject_booking(callback: CallbackQuery, state: FSMContext, bot):
@@ -444,49 +541,143 @@ async def reject_booking(callback: CallbackQuery, state: FSMContext, bot):
         await callback.answer("Доступ только для мастера.")
         return
     booking_id = int(callback.data.replace("reject_booking_", ""))
-    await callback.message.answer("Укажите причину отказа:")
     await state.update_data(booking_id=booking_id, master_action="reject")
+    await callback.message.answer("Укажите причину отказа:")
+    await state.set_state(BookingStates.AwaitingMasterResponse)
+    logger.info(f"Мастер запросил причину отказа для booking_id={booking_id}")
     await callback.answer()
 
-@service_booking_router.message(F.text, F.state.in_([None, BookingStates.AwaitingMasterResponse]))
-async def process_master_response(message: Message, state: FSMContext, bot):
-    """Обрабатывает ответ мастера (новое время или причина отказа)."""
+@service_booking_router.message(BookingStates.AwaitingMasterTime, F.text)
+async def process_master_time(message: Message, state: FSMContext, bot):
+    """Обрабатывает ввод нового времени мастером."""
     if str(message.from_user.id) != Config.ADMIN_ID:
+        logger.debug(f"Неавторизованный доступ к process_master_time от user_id={message.from_user.id}")
         return
     data = await state.get_data()
-    if "master_action" not in data:
+    logger.debug(f"FSM state in process_master_time: {data}")
+    if "booking_id" not in data or "master_action" not in data or data["master_action"] != "reschedule":
+        logger.error(f"Некорректные данные состояния FSM: {data}")
+        await message.answer("Ошибка: данные состояния отсутствуют. Попробуйте снова.")
+        await state.clear()
         return
     booking_id = data.get("booking_id")
+    logger.info(f"Обработка нового времени для booking_id={booking_id}")
+
     try:
         with Session() as session:
             booking = session.query(Booking).get(booking_id)
             if not booking:
+                logger.error(f"Запись booking_id={booking_id} не найдена")
                 await message.answer("Запись не найдена.")
+                await state.clear()
                 return
             user = session.query(User).get(booking.user_id)
+            if not user:
+                logger.error(f"Пользователь user_id={booking.user_id} не найден для booking_id={booking_id}")
+                await message.answer("Пользователь не найден.")
+                await state.clear()
+                return
             auto = session.query(Auto).get(booking.auto_id)
-            if data["master_action"] == "reschedule":
+            if not auto:
+                logger.error(f"Автомобиль auto_id={booking.auto_id} не найден для booking_id={booking_id}")
+                await message.answer("Автомобиль не найден.")
+                await state.clear()
+                return
+            logger.debug(f"Данные для booking_id={booking_id}: user_id={user.id}, telegram_id={user.telegram_id}, auto_id={auto.id}")
+
+            try:
+                new_time = datetime.strptime(message.text, "%H:%M").time()
+                logger.info(f"Новое время {new_time} для booking_id={booking_id}")
+                booking.proposed_time = new_time
+                booking.status = BookingStatus.PENDING
+                session.commit()
+                logger.info(f"Запись booking_id={booking_id} обновлена: proposed_time={new_time}, status=PENDING")
                 try:
-                    new_time = datetime.strptime(message.text, "%H:%M").time()
-                    booking.time = new_time
-                    booking.status = BookingStatus.CONFIRMED
-                    session.commit()
+                    # Создаём новый FSMContext для пользователя
+                    user_state = FSMContext(
+                        storage=state.storage,
+                        key=StorageKey(
+                            bot_id=state.key.bot_id,
+                            chat_id=int(user.telegram_id),
+                            user_id=int(user.telegram_id)
+                        )
+                    )
+                    await user_state.update_data(booking_id=booking_id)
+                    await user_state.set_state(BookingStates.AwaitingUserConfirmation)
+                    logger.debug(f"Установлено состояние AwaitingUserConfirmation для user_id={user.telegram_id}, booking_id={booking_id}")
                     await bot.send_message(
                         user.telegram_id,
                         f"Мастер предложил новое время для записи:\n"
                         f"Услуга: {booking.service_name}\n"
                         f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
-                        f"Новое время: {booking.time.strftime('%H:%M')}\n"
-                        f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}"
+                        f"Новое время: {new_time.strftime('%H:%M')}\n"
+                        f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}\n"
+                        f"Подтвердите или отклоните:",
+                        reply_markup=Keyboards.confirm_reschedule_kb(booking_id)
                     )
-                    await message.answer("Новое время отправлено пользователю.")
-                except ValueError:
-                    await message.answer("Некорректный формат времени. Введите снова (например, 14:30):")
-                    return
-            elif data["master_action"] == "reject":
-                booking.status = BookingStatus.REJECTED
-                booking.rejection_reason = message.text
-                session.commit()
+                    logger.info(f"Уведомление о новом времени отправлено пользователю {user.telegram_id} для booking_id={booking_id}")
+                    await message.answer("Новое время отправлено пользователю. Ожидается подтверждение.")
+                except TelegramForbiddenError:
+                    logger.error(f"Не удалось отправить уведомление пользователю {user.telegram_id}: пользователь заблокировал бота")
+                    await message.answer("Ошибка: пользователь заблокировал бота.")
+                except TelegramBadRequest as e:
+                    logger.error(f"Ошибка Telegram API при отправке уведомления пользователю {user.telegram_id}: {str(e)}")
+                    await message.answer("Ошибка Telegram API при отправке сообщения.")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления пользователю {user.telegram_id} для booking_id={booking_id}: {str(e)}")
+                    await message.answer("Ошибка отправки уведомления пользователю.")
+            except ValueError:
+                logger.warning(f"Некорректный формат времени '{message.text}' для booking_id={booking_id}")
+                await message.answer("Некорректный формат времени. Введите снова (например, 14:30):")
+                return
+        await state.clear()  # Очищаем состояние мастера
+        logger.debug(f"Состояние FSM мастера очищено для booking_id={booking_id}")
+    except Exception as e:
+        logger.error(f"Критическая ошибка обработки нового времени для booking_id={booking_id}: {str(e)}")
+        await message.answer("Критическая ошибка. Попробуйте снова.")
+        await state.clear()
+
+@service_booking_router.message(BookingStates.AwaitingMasterResponse, F.text)
+async def process_master_rejection(message: Message, state: FSMContext, bot):
+    """Обрабатывает причину отказа мастера."""
+    if str(message.from_user.id) != Config.ADMIN_ID:
+        logger.debug(f"Неавторизованный доступ к process_master_rejection от user_id={message.from_user.id}")
+        return
+    data = await state.get_data()
+    logger.debug(f"FSM state in process_master_rejection: {data}")
+    if "booking_id" not in data or "master_action" not in data or data["master_action"] != "reject":
+        logger.error(f"Некорректные данные состояния FSM: {data}")
+        await message.answer("Ошибка: данные состояния отсутствуют. Попробуйте снова.")
+        await state.clear()
+        return
+    booking_id = data.get("booking_id")
+    logger.info(f"Обработка причины отказа для booking_id={booking_id}")
+
+    try:
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                logger.error(f"Запись booking_id={booking_id} не найдена")
+                await message.answer("Запись не найдена.")
+                await state.clear()
+                return
+            user = session.query(User).get(booking.user_id)
+            if not user:
+                logger.error(f"Пользователь user_id={booking.user_id} не найден для booking_id={booking_id}")
+                await message.answer("Пользователь не найден.")
+                await state.clear()
+                return
+            auto = session.query(Auto).get(booking.auto_id)
+            if not auto:
+                logger.error(f"Автомобиль auto_id={booking.auto_id} не найден для booking_id={booking_id}")
+                await message.answer("Автомобиль не найден.")
+                await state.clear()
+                return
+            booking.status = BookingStatus.REJECTED
+            booking.rejection_reason = message.text
+            session.commit()
+            logger.info(f"Запись booking_id={booking_id} отклонена: reason={message.text}")
+            try:
                 await bot.send_message(
                     user.telegram_id,
                     f"Ваша запись отклонена.\n"
@@ -495,8 +686,131 @@ async def process_master_response(message: Message, state: FSMContext, bot):
                     f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
                     f"Время: {booking.time.strftime('%H:%M')}"
                 )
+                logger.info(f"Уведомление об отказе отправлено пользователю {user.telegram_id} для booking_id={booking_id}")
                 await message.answer("Отказ отправлен пользователю.")
+            except TelegramForbiddenError:
+                logger.error(f"Не удалось отправить уведомление об отказе пользователю {user.telegram_id}: пользователь заблокировал бота")
+                await message.answer("Ошибка: пользователь заблокировал бота.")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления об отказе пользователю {user.telegram_id}: {str(e)}")
+                await message.answer("Ошибка отправки уведомления пользователю.")
         await state.clear()
+        logger.debug(f"Состояние FSM очищено для booking_id={booking_id}")
     except Exception as e:
-        logger.error(f"Ошибка обработки ответа мастера: {str(e)}")
-        await message.answer("Ошибка. Попробуйте снова.")
+        logger.error(f"Критическая ошибка обработки причины отказа для booking_id={booking_id}: {str(e)}")
+        await message.answer("Критическая ошибка. Попробуйте снова.")
+        await state.clear()
+
+@service_booking_router.callback_query(F.data.startswith("confirm_reschedule_"))
+async def process_user_confirmation(callback: CallbackQuery, state: FSMContext, bot):
+    """Обрабатывает подтверждение пользователем нового времени."""
+    logger.debug(f"Попытка подтверждения пользователем user_id={callback.from_user.id} для callback_data={callback.data}")
+    booking_id = int(callback.data.replace("confirm_reschedule_", ""))
+    try:
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                logger.error(f"Запись booking_id={booking_id} не найдена")
+                await callback.message.answer("Запись не найдена.", reply_markup=Keyboards.main_menu_kb())
+                await state.clear()
+                await callback.answer()
+                return
+            if str(callback.from_user.id) != str(booking.user.telegram_id):
+                logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} не соответствует telegram_id={booking.user.telegram_id}")
+                await callback.answer("Доступ только для владельца записи.")
+                return
+            user = session.query(User).get(booking.user_id)
+            auto = session.query(Auto).get(booking.auto_id)
+            if not booking.proposed_time:
+                logger.error(f"Предложенное время отсутствует для booking_id={booking_id}")
+                await callback.message.answer("Ошибка: предложенное время не найдено.", reply_markup=Keyboards.main_menu_kb())
+                await state.clear()
+                await callback.answer()
+                return
+            booking.time = booking.proposed_time
+            booking.proposed_time = None
+            booking.status = BookingStatus.CONFIRMED
+            session.commit()
+            logger.info(f"Запись booking_id={booking_id} подтверждена пользователем: time={booking.time}, status=CONFIRMED")
+            try:
+                await bot.send_message(
+                    Config.ADMIN_ID,
+                    f"Пользователь {user.first_name} {user.last_name} подтвердил запись:\n"
+                    f"Услуга: {booking.service_name}\n"
+                    f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                    f"Время: {booking.time.strftime('%H:%M')}\n"
+                    f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}"
+                )
+                logger.info(f"Уведомление о подтверждении отправлено мастеру для booking_id={booking_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления мастеру для booking_id={booking_id}: {str(e)}")
+            await callback.message.edit_text(
+                f"Вы подтвердили запись:\n"
+                f"Услуга: {booking.service_name}\n"
+                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                f"Время: {booking.time.strftime('%H:%M')}\n"
+                f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}",
+                reply_markup=None
+            )
+            await callback.answer("Запись подтверждена.")
+            await state.clear()
+            logger.debug(f"Состояние FSM очищено для booking_id={booking_id}")
+    except Exception as e:
+        logger.error(f"Ошибка подтверждения записи пользователем для booking_id={booking_id}: {str(e)}")
+        await callback.message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+        await state.clear()
+        await callback.answer()
+
+@service_booking_router.callback_query(F.data.startswith("reject_reschedule_"))
+async def process_user_rejection(callback: CallbackQuery, state: FSMContext, bot):
+    """Обрабатывает отклонение пользователем нового времени."""
+    logger.debug(f"Попытка отклонения пользователем user_id={callback.from_user.id} для callback_data={callback.data}")
+    booking_id = int(callback.data.replace("reject_reschedule_", ""))
+    try:
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                logger.error(f"Запись booking_id={booking_id} не найдена")
+                await callback.message.answer("Запись не найдена.", reply_markup=Keyboards.main_menu_kb())
+                await state.clear()
+                await callback.answer()
+                return
+            if str(callback.from_user.id) != str(booking.user.telegram_id):
+                logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} не соответствует telegram_id={booking.user.telegram_id}")
+                await callback.answer("Доступ только для владельца записи.")
+                return
+            user = session.query(User).get(booking.user_id)
+            auto = session.query(Auto).get(booking.auto_id)
+            booking.status = BookingStatus.REJECTED
+            booking.rejection_reason = "Пользователь отклонил предложенное время"
+            booking.proposed_time = None
+            session.commit()
+            logger.info(f"Запись booking_id={booking_id} отклонена пользователем: reason={booking.rejection_reason}")
+            try:
+                await bot.send_message(
+                    Config.ADMIN_ID,
+                    f"Пользователь {user.first_name} {user.last_name} отклонил запись:\n"
+                    f"Услуга: {booking.service_name}\n"
+                    f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                    f"Предложенное время: {booking.time.strftime('%H:%M')}\n"
+                    f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}\n"
+                    f"Причина: Пользователь отклонил предложенное время"
+                )
+                logger.info(f"Уведомление об отказе отправлено мастеру для booking_id={booking_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления мастеру для booking_id={booking_id}: {str(e)}")
+            await callback.message.edit_text(
+                f"Вы отклонили предложенное время для записи:\n"
+                f"Услуга: {booking.service_name}\n"
+                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                f"Авто: {auto.brand}, {auto.year}, {auto.license_plate}",
+                reply_markup=None
+            )
+            await callback.answer("Запись отклонена.")
+            await state.clear()
+            logger.debug(f"Состояние FSM очищено для booking_id={booking_id}")
+    except Exception as e:
+        logger.error(f"Ошибка отклонения записи пользователем для booking_id={booking_id}: {str(e)}")
+        await callback.message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+        await state.clear()
+        await callback.answer()

@@ -1,8 +1,8 @@
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Date, Time, Enum, DateTime
+import os
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Enum, Date, Time, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import enum
-import os
 from datetime import datetime
 
 Base = declarative_base()
@@ -34,26 +34,24 @@ class Auto(Base):
     bookings = relationship("Booking", back_populates="auto")
 
 class Booking(Base):
-    __tablename__ = "bookings"
+    __tablename__ = 'bookings'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    auto_id = Column(Integer, ForeignKey("auto.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    auto_id = Column(Integer, ForeignKey('auto.id'), nullable=False)
     service_name = Column(String, nullable=False)
     date = Column(Date, nullable=False)
     time = Column(Time, nullable=False)
+    proposed_time = Column(Time, nullable=True)
     status = Column(Enum(BookingStatus), default=BookingStatus.PENDING, nullable=False)
-    rejection_reason = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)  # Новое поле
     user = relationship("User", back_populates="bookings")
     auto = relationship("Auto", back_populates="bookings")
 
 def init_db():
     """Инициализирует базу данных, создавая таблицы, если они не существуют."""
-    db_path = "sqlite:///autoshop.db"
-    if not os.path.exists("autoshop.db"):
-        engine = create_engine(db_path, echo=False)
-        Base.metadata.create_all(engine)
-    else:
-        engine = create_engine(db_path, echo=False)
+    db_path = "sqlite:///RemDiesel.db"
+    engine = create_engine(db_path, echo=False)
+    Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     return Session
