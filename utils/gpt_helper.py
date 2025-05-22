@@ -1,5 +1,5 @@
 import httpx
-from config.config import YANDEX_API_KEY, YANDEX_FOLDER_ID, AI_PROMPT_STR
+from config import Config
 from utils import setup_logger
 
 logger = setup_logger(__name__)
@@ -8,14 +8,14 @@ logger = setup_logger(__name__)
 async def analyze_text_description(description: str) -> str:
     """Анализирует текстовое описание проблемы через Yandex GPT API."""
     try:
-        model_uri = f"gpt://{YANDEX_FOLDER_ID}/yandexgpt"
+        model_uri = f"gpt://{Config.YANDEX_FOLDER_ID}/yandexgpt"
         logger.info(f"Sending request to Yandex GPT with modelUri: {model_uri}")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
                 headers={
-                    "Authorization": f"Bearer {YANDEX_API_KEY}",
-                    "x-folder-id": YANDEX_FOLDER_ID
+                    "Authorization": f"Bearer {Config.YANDEX_API_KEY}",
+                    "x-folder-id": Config.YANDEX_FOLDER_ID
                 },
                 json={
                     "modelUri": model_uri,
@@ -28,7 +28,7 @@ async def analyze_text_description(description: str) -> str:
                         {
                             "role": "user",
                             "text": (
-                                f"{AI_PROMPT_STR}"
+                                f"{Config.AI_PROMPT_STR}"
                                 f"Описание: {description}"
                             )
                         }

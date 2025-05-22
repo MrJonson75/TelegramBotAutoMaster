@@ -2,54 +2,60 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
 from keyboards.main_kb import main_menu_kb
-from config.config import PHOTO_PATHS
+from config.config import Config
+from utils import setup_logger
+
+logger = setup_logger(__name__)
 
 common_router = Router()
 
 # Обработчик команды /start
 @common_router.message(Command("start"))
 async def cmd_start(message: Message):
-    welcome_text = (
-        "Добро пожаловать в RemDiesel 🚚!\n"
-        "Я помогу вам:\n"
-        "- Записаться на техническое обслуживание или ремонт\n"
-        "- Провести диагностику по фото\n"
-        "- Просмотреть ваши записи\n"
-        "- Узнать о мастере и контактах\n"
-        "Выберите действие:"
-    )
-    await message.answer_photo(
-        photo=FSInputFile(PHOTO_PATHS["welcome"]),
-        caption=welcome_text,
-        reply_markup=main_menu_kb()
-    )
+    try:
+        photo_path = Config.get_photo_path("welcome")
+        await message.answer_photo(
+            photo=FSInputFile(photo_path),
+            caption=Config.MESSAGES["welcome"],
+            reply_markup=main_menu_kb()
+        )
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(f"Ошибка загрузки фото для /start: {str(e)}")
+        await message.answer(
+            Config.MESSAGES["welcome"],
+            reply_markup=main_menu_kb()
+        )
 
 # Обработчик текстового сообщения "📞 Контакты/как проехать"
 @common_router.message(F.text == "📞 Контакты/как проехать")
 async def show_contacts(message: Message):
-    contacts_text = (
-        "📞 Свяжитесь с нами:\n"
-        "Телефон: +7 (999) 123-45-67\n"
-        "Email: support@remdiesel.ru\n"
-        "Адрес: г. Москва, ул. Автозаводская, д. 10\n"
-        "Как проехать: м. Автозаводская, 5 мин пешком"
-    )
-    await message.answer_photo(
-        photo=FSInputFile(PHOTO_PATHS["contacts"]),
-        caption=contacts_text,
-        reply_markup=main_menu_kb()
-    )
+    try:
+        photo_path = Config.get_photo_path("contacts")
+        await message.answer_photo(
+            photo=FSInputFile(photo_path),
+            caption=Config.MESSAGES["contacts"],
+            reply_markup=main_menu_kb()
+        )
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(f"Ошибка загрузки фото для контактов: {str(e)}")
+        await message.answer(
+            Config.MESSAGES["contacts"],
+            reply_markup=main_menu_kb()
+        )
 
 # Обработчик текстового сообщения "О мастере"
 @common_router.message(F.text == "О мастере")
 async def show_about_master(message: Message):
-    about_text = (
-        "🛠 Мастер Иван - эксперт по дизельным автомобилям с 15-летним опытом.\n"
-        "Специализация: диагностика, ремонт двигателей, ТО.\n"
-        "Посмотрите фото и видео наших работ!"
-    )
-    await message.answer_photo(
-        photo=FSInputFile(PHOTO_PATHS["about_master"]),
-        caption=about_text,
-        reply_markup=main_menu_kb()
-    )
+    try:
+        photo_path = Config.get_photo_path("about_master")
+        await message.answer_photo(
+            photo=FSInputFile(photo_path),
+            caption=Config.MESSAGES["about_master"],
+            reply_markup=main_menu_kb()
+        )
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(f"Ошибка загрузки фото для 'О мастере': {str(e)}")
+        await message.answer(
+            Config.MESSAGES["about_master"],
+            reply_markup=main_menu_kb()
+        )

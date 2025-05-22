@@ -1,29 +1,30 @@
-import asyncio
 from aiogram import Bot, Dispatcher
-from config.config import BOT_TOKEN
-from handlers.common import common_router
-from handlers.photo_diagnostic import photo_diagnostic_router
+from aiogram.fsm.storage.memory import MemoryStorage
+from config.config import Config
+from handlers import all_handlers
+from utils import setup_logger
 
+logger = setup_logger(__name__)
 
 
 async def main():
-    # Инициализация бота и диспетчера
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher()
+    logger.info("Starting bot")
+    bot = Bot(token=Config.BOT_TOKEN)
+    dp = Dispatcher(storage=MemoryStorage())
 
-    # Подключение роутеров
-    dp.include_routers(common_router, photo_diagnostic_router)
+    # Подключение всех маршрутизаторов
+    dp.include_router(all_handlers)
 
-    # Сброс существующих webhook'ов или getUpdates
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        print("Webhook deleted, starting polling")
+        await dp.start_polling(bot)
     except Exception as e:
-        print(f"Failed to delete webhook: {e}")
-
-    # Запуск polling
-    await dp.start_polling(bot)
+        logger.error(f"Bot polling error: {str(e)}")
+    finally:
+        await bot.session.close()
+        logger.info("Bot stopped")
 
 
 if __name__ == "__main__":
+    import asyncio
+
     asyncio.run(main())
