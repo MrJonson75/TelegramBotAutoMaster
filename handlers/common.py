@@ -1,8 +1,8 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
-from keyboards.main_kb import main_menu_kb
-from config.config import Config
+from keyboards.main_kb import Keyboards  # Обновлённый импорт
+from config import Config
 from utils import setup_logger
 
 logger = setup_logger(__name__)
@@ -17,13 +17,13 @@ async def cmd_start(message: Message):
         await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption=Config.MESSAGES["welcome"],
-            reply_markup=main_menu_kb()
+            reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для /start: {str(e)}")
         await message.answer(
             Config.MESSAGES["welcome"],
-            reply_markup=main_menu_kb()
+            reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
 
 # Обработчик текстового сообщения "📞 Контакты/как проехать"
@@ -34,13 +34,13 @@ async def show_contacts(message: Message):
         await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption=Config.MESSAGES["contacts"],
-            reply_markup=main_menu_kb()
+            reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для контактов: {str(e)}")
         await message.answer(
             Config.MESSAGES["contacts"],
-            reply_markup=main_menu_kb()
+            reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
 
 # Обработчик текстового сообщения "О мастере"
@@ -51,11 +51,11 @@ async def show_about_master(message: Message):
         await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption=Config.MESSAGES["about_master"],
-            reply_markup=main_menu_kb()
+            reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для 'О мастере': {str(e)}")
         await message.answer(
             Config.MESSAGES["about_master"],
-            reply_markup=main_menu_kb()
+            reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
