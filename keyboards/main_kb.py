@@ -227,3 +227,15 @@ class Keyboards:
             [InlineKeyboardButton(text="Отклонить", callback_data=f"reject_reschedule_{booking_id}")]
         ]
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+    @staticmethod
+    def admin_pagination_kb(page: int, total_bookings: int) -> InlineKeyboardMarkup:
+        """Создаёт инлайн-клавиатуру для пагинации админ-панели."""
+        navigation_rows = []
+        if page > 0:
+            navigation_rows.append(InlineKeyboardButton(text="⬅ Предыдущая", callback_data=f"admin_page_{page-1}"))
+        if total_bookings > (page + 1) * 5:
+            navigation_rows.append(InlineKeyboardButton(text="Следующая ➡", callback_data=f"admin_page_{page+1}"))
+        if navigation_rows:
+            return InlineKeyboardMarkup(inline_keyboard=[navigation_rows])
+        return None
