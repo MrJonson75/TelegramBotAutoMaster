@@ -20,6 +20,7 @@ async def main():
     # Регистрация всех обработчиков
     dp.include_router(all_handlers)
 
+
     try:
         logger.info("Starting bot")
         await dp.start_polling(bot, session=Session)

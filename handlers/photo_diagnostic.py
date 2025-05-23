@@ -1,4 +1,4 @@
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -7,7 +7,7 @@ import os
 from PIL import Image
 from io import BytesIO
 from config import get_photo_path
-from utils import setup_logger, analyze_text_description, analyze_images
+from utils import setup_logger, analyze_text_description, analyze_images, delete_previous_message
 from keyboards.main_kb import Keyboards
 
 photo_diagnostic_router = Router()
@@ -87,27 +87,31 @@ async def start_diagnostic(message: Message, state: FSMContext):
     await state.set_state(DiagnosticStates.AwaitingChoice)
     logger.debug(f"Set state to AwaitingChoice for user {message.from_user.id}")
 
+
 @photo_diagnostic_router.callback_query(F.data.in_(["text_diagnostic", "start_photo_diagnostic"]))
-async def handle_diagnostic_choice(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор способа диагностики."""
+async def handle_diagnostic_choice(callback: CallbackQuery, state: FSMContext, bot: Bot):
     logger.debug(f"Received callback data: {callback.data} for user {callback.from_user.id}")
     try:
+        # Сохраняем ID сообщения для удаления
+        await state.update_data(last_message_id=callback.message.message_id)
+
         if callback.data == "text_diagnostic":
-            await callback.message.answer(
+            await delete_previous_message(bot, callback.message.chat.id, callback.message.message_id)
+            message = await callback.message.answer(
                 "Опишите проблему с автомобилем текстом (например, 'стучит подвеска').",
                 reply_markup=Keyboards.main_menu_kb()
             )
+            await state.update_data(last_message_id=message.message_id)
             await state.set_state(DiagnosticStates.AwaitingTextDescription)
-            logger.debug(f"Set state to AwaitingTextDescription for user {callback.from_user.id}")
         elif callback.data == "start_photo_diagnostic":
-            await callback.message.answer(
-                "📸 Нажмите на скрепку 📎 или перетащите 1–3 фото для диагностики (например, приборная панель, кузов, детали). "
-                "Данные обрабатываются внешним сервисом.",
+            await delete_previous_message(bot, callback.message.chat.id, callback.message.message_id)
+            message = await callback.message.answer(
+                "📸 Нажмите на скрепку 📎 или перетащите 1–3 фото для диагностики...",
                 reply_markup=Keyboards.photo_upload_kb()
             )
+            await state.update_data(last_message_id=message.message_id)
             await state.set_state(DiagnosticStates.AwaitingPhoto)
             await state.update_data(photos=[])
-            logger.debug(f"Set state to AwaitingPhoto for user {callback.from_user.id}")
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка обработки callback {callback.data}: {str(e)}")
