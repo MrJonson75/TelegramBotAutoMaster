@@ -5,7 +5,6 @@ from database import Booking, BookingStatus
 from datetime import datetime, timedelta, time
 from sqlalchemy.orm import Session
 
-
 class Keyboards:
     """Класс для управления клавиатурами бота."""
 
@@ -52,7 +51,8 @@ class Keyboards:
         """Создаёт инлайн-клавиатуру с перечнем услуг."""
         keyboard = []
         for service in Config.SERVICES:
-            keyboard.append([InlineKeyboardButton(text=service["name"], callback_data=f"service_{service['name']}")])
+            text = f"{service['name']} ({service['price']} ₽)"
+            keyboard.append([InlineKeyboardButton(text=text, callback_data=f"service_{service['name']}")])
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     @staticmethod
@@ -65,11 +65,31 @@ class Keyboards:
 
     @staticmethod
     def calendar_kb(selected_date: datetime = None, week_offset: int = 0) -> InlineKeyboardMarkup:
-        """Создаёт инлайн-клавиатуру с доступными датами (7 дней)."""
+        """Создаёт инлайн-клавиатуру с доступными датами (7 рабочих дней, на русском)."""
         today = datetime.today()
         start_date = today + timedelta(days=week_offset * 7)
         keyboard = []
         valid_dates = []
+
+        # Словарь для локализации дней недели
+        day_names = {
+            "Monday": "Понедельник",
+            "Tuesday": "Вторник",
+            "Wednesday": "Среда",
+            "Thursday": "Четверг",
+            "Friday": "Пятница",
+            "Saturday": "Суббота",
+            "Sunday": "Воскресенье"
+        }
+        day_emojis = {
+            "Monday": "🟦",
+            "Tuesday": "🟩",
+            "Wednesday": "🟨",
+            "Thursday": "🟧",
+            "Friday": "🟪",
+            "Saturday": "🔴",
+            "Sunday": "⚪"
+        }
 
         # Собираем 7 рабочих дней
         current_date = start_date
@@ -77,15 +97,21 @@ class Keyboards:
             if current_date.strftime("%A") not in Config.WORKING_HOURS["weekends"]:
                 valid_dates.append(current_date)
             current_date += timedelta(days=1)
-            if (current_date - start_date).days > 30:  # Ограничение на 30 дней вперёд
+            if (current_date - start_date).days > 30:
                 break
 
-        for date in valid_dates:
-            callback_data = f"date_{date.strftime('%Y-%m-%d')}"
-            text = date.strftime("%d.%m (%a)")
-            if selected_date and selected_date.date() == date.date():
-                text = f"✅ {text}"
-            keyboard.append([InlineKeyboardButton(text=text, callback_data=callback_data)])
+        # Группируем по 2–3 даты в строке
+        for i in range(0, len(valid_dates), 2):
+            row = []
+            for date in valid_dates[i:i+2]:
+                day_name = day_names[date.strftime("%A")]
+                emoji = day_emojis[date.strftime("%A")]
+                callback_data = f"date_{date.strftime('%Y-%m-%d')}"
+                text = f"{emoji} {date.strftime('%d.%m')} {day_name}"
+                if selected_date and selected_date.date() == date.date():
+                    text = f"✅ {text}"
+                row.append(InlineKeyboardButton(text=text, callback_data=callback_data))
+            keyboard.append(row)
 
         # Кнопки навигации
         nav_buttons = []
@@ -94,18 +120,20 @@ class Keyboards:
         if today <= valid_dates[-1] < today + timedelta(days=30):
             nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡", callback_data=f"next_week_{week_offset + 1}"))
         if start_date.date() != today.date():
-            nav_buttons.append(InlineKeyboardButton(text="Сегодня", callback_data="today"))
-        if nav_buttons:
-            keyboard.append(nav_buttons)
+            nav_buttons.append(InlineKeyboardButton(text="📅 Сегодня", callback_data="today"))
+        nav_buttons.append(InlineKeyboardButton(text="🚫 Отмена", callback_data="cancel_booking"))
+        keyboard.append(nav_buttons)
 
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     @staticmethod
     def time_slots_kb(date: datetime, service_duration: int, session: Session,
                       time_offset: int = 0) -> InlineKeyboardMarkup:
-        """Создаёт инлайн-клавиатуру с доступными временными слотами (шаг 1 час, до 6 слотов)."""
+        """Создаёт инлайн-клавиатуру с доступными временными слотами (шаг 30 минут, до 6 слотов)."""
         start_hour = int(Config.WORKING_HOURS["start"].split(":")[0])
+        start_minute = int(Config.WORKING_HOURS["start"].split(":")[1])
         end_hour = int(Config.WORKING_HOURS["end"].split(":")[0])
+        end_minute = int(Config.WORKING_HOURS["end"].split(":")[1])
         keyboard = []
         valid_slots = []
 
@@ -114,43 +142,51 @@ class Keyboards:
             Booking.date == date.date(),
             Booking.status != BookingStatus.REJECTED
         ).all()
-        booked_times = [(b.time.hour, b.time.hour + (
-                b.time.minute + Config.SERVICES[[s["name"] for s in Config.SERVICES].index(b.service_name)][
-            "duration_minutes"]) // 60) for b in existing_bookings]
+        booked_slots = []
+        for b in existing_bookings:
+            start_time = b.time
+            duration = Config.SERVICES[[s["name"] for s in Config.SERVICES].index(b.service_name)]["duration_minutes"]
+            end_time = (datetime.combine(date.today(), start_time) + timedelta(minutes=duration)).time()
+            booked_slots.append((start_time, end_time))
 
-        # Собираем доступные слоты с шагом 1 час
-        current_hour = start_hour
-        while current_hour < end_hour:
-            slot_end_hour = current_hour + (service_duration // 60)
-            slot_end_minutes = (service_duration % 60)
-            if slot_end_minutes >= 60:
-                slot_end_hour += 1
-                slot_end_minutes -= 60
-            if slot_end_hour > end_hour or (slot_end_hour == end_hour and slot_end_minutes > 0):
+        # Собираем доступные слоты с шагом 30 минут
+        current_time = datetime.combine(date.today(), time(hour=start_hour, minute=start_minute))
+        end_time = datetime.combine(date.today(), time(hour=end_hour, minute=end_minute))
+        while current_time < end_time:
+            slot_end = current_time + timedelta(minutes=service_duration)
+            if slot_end > end_time:
                 break
             is_booked = False
-            for start, end in booked_times:
-                if current_hour >= start and current_hour < end:
+            for booked_start, booked_end in booked_slots:
+                booked_start_dt = datetime.combine(date.today(), booked_start)
+                booked_end_dt = datetime.combine(date.today(), booked_end)
+                if (current_time < booked_end_dt and slot_end > booked_start_dt):
                     is_booked = True
                     break
             if not is_booked:
-                valid_slots.append(time(hour=current_hour))
-            current_hour += 1
+                valid_slots.append(current_time.time())
+            current_time += timedelta(minutes=30)
 
         # Ограничиваем до 6 слотов за раз
         start_index = time_offset * 6
         display_slots = valid_slots[start_index:start_index + 6]
 
-        for slot in display_slots:
-            callback_data = f"time_{slot.strftime('%H:%M')}"
-            keyboard.append([InlineKeyboardButton(text=slot.strftime("%H:%M"), callback_data=callback_data)])
+        # Группируем по 2 слота в строке
+        for i in range(0, len(display_slots), 2):
+            row = []
+            for slot in display_slots[i:i+2]:
+                callback_data = f"time_{slot.strftime('%H:%M')}"
+                text = f"🕒 {slot.strftime('%H:%M')} ({service_duration} мин)"
+                row.append(InlineKeyboardButton(text=text, callback_data=callback_data))
+            keyboard.append(row)
 
         # Кнопки навигации
         nav_buttons = []
         if start_index > 0:
-            nav_buttons.append(InlineKeyboardButton(text="⬅ Ранее", callback_data=f"prev_slots_{time_offset - 1}"))
+            nav_buttons.append(InlineKeyboardButton(text="⏪ Ранее", callback_data=f"prev_slots_{time_offset - 1}"))
         if start_index + 6 < len(valid_slots):
-            nav_buttons.append(InlineKeyboardButton(text="Позже ➡", callback_data=f"next_slots_{time_offset + 1}"))
+            nav_buttons.append(InlineKeyboardButton(text="Позже ⏩", callback_data=f"next_slots_{time_offset + 1}"))
+        nav_buttons.append(InlineKeyboardButton(text="🚫 Отмена", callback_data="cancel_booking"))
         if nav_buttons:
             keyboard.append(nav_buttons)
 

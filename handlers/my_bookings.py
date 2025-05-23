@@ -11,7 +11,7 @@ import pytz
 
 my_bookings_router = Router()
 logger = setup_logger(__name__)
-Session = init_db()
+from database import Session
 
 @my_bookings_router.message(F.text == "Мои записи")
 async def list_bookings(message: Message):

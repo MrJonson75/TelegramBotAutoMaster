@@ -39,19 +39,26 @@ class Booking(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     auto_id = Column(Integer, ForeignKey('auto.id'), nullable=False)
     service_name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)  # Новое поле для описания проблемы
     date = Column(Date, nullable=False)
     time = Column(Time, nullable=False)
     proposed_time = Column(Time, nullable=True)
     status = Column(Enum(BookingStatus), default=BookingStatus.PENDING, nullable=False)
     rejection_reason = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)  # Новое поле
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    price = Column(Integer, nullable=True)
     user = relationship("User", back_populates="bookings")
     auto = relationship("Auto", back_populates="bookings")
 
+engine = create_engine("sqlite:///RemDiesel.db", echo=False)
+Session = sessionmaker(bind=engine)
+
 def init_db():
     """Инициализирует базу данных, создавая таблицы, если они не существуют."""
-    db_path = "sqlite:///RemDiesel.db"
-    engine = create_engine(db_path, echo=False)
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
+    with engine.connect() as conn:
+        try:
+            conn.execute("ALTER TABLE bookings ADD COLUMN description TEXT;")
+        except Exception as e:
+            logger.info(f"Столбец description уже существует или другая ошибка: {str(e)}")
     return Session

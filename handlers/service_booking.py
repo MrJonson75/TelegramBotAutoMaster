@@ -15,7 +15,7 @@ import asyncio
 
 service_booking_router = Router()
 logger = setup_logger(__name__)
-Session = init_db()
+from database import Session
 
 # Состояния FSM
 class BookingStates(StatesGroup):
@@ -432,9 +432,29 @@ async def next_slots_selection(callback: CallbackQuery, state: FSMContext):
         )
     await callback.answer()
 
+async def schedule_user_reminder(bot, booking: Booking, user: User, auto: Auto):
+    """Запланировать напоминание пользователю."""
+    try:
+        booking_datetime = datetime.combine(booking.date, booking.time)
+        reminder_time = booking_datetime - timedelta(minutes=Config.REMINDER_TIME_MINUTES)
+        now = datetime.now()
+        if reminder_time > now:
+            delay = (reminder_time - now).total_seconds()
+            await asyncio.sleep(delay)
+            await bot.send_message(
+                user.telegram_id,
+                f"Напоминание: Через {Config.REMINDER_TIME_MINUTES} минут ваша запись:\n"
+                f"Услуга: {booking.service_name} ({booking.price} ₽)\n"
+                f"Авто: {auto.brand}, {auto.year}\n"
+                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                f"Время: {booking.time.strftime('%H:%M')}"
+            )
+            logger.info(f"Напоминание отправлено пользователю {user.telegram_id} для booking_id={booking.id}")
+    except Exception as e:
+        logger.error(f"Ошибка отправки напоминания пользователю для booking_id={booking.id}: {str(e)}")
+
 @service_booking_router.callback_query(BookingStates.AwaitingTime, F.data.startswith("time_"))
 async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot):
-    """Обрабатывает выбор времени и создаёт запись."""
     time_str = callback.data.replace("time_", "")
     try:
         selected_time = datetime.strptime(time_str, "%H:%M").time()
@@ -448,24 +468,28 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
                 await state.clear()
                 await callback.answer()
                 return
+            service_price = next(s["price"] for s in Config.SERVICES if s["name"] == data["service_name"])
             booking = Booking(
                 user_id=user.id,
                 auto_id=data["auto_id"],
                 service_name=data["service_name"],
                 date=data["selected_date"].date(),
                 time=selected_time,
-                status=BookingStatus.PENDING
+                status=BookingStatus.PENDING,
+                price=service_price
             )
             session.add(booking)
             session.commit()
             logger.info(f"Booking created: {booking.id} for user {callback.from_user.id}")
             await notify_master(bot, booking, user, auto)
             asyncio.create_task(schedule_reminder(bot, booking, user, auto))
+            asyncio.create_task(schedule_user_reminder(bot, booking, user, auto))  # Новое напоминание
             await callback.message.answer(
-                "Ваша заявка отправлена мастеру. Ожидайте подтверждения.",
+                f"Ваша заявка отправлена мастеру. Ожидайте подтверждения.\n"
+                f"Услуга: {booking.service_name} ({service_price} ₽)",
                 reply_markup=Keyboards.main_menu_kb()
             )
-            await state.clear()  # Очищаем состояние после создания записи
+            await state.clear()
             await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка создания записи: {str(e)}")
@@ -814,3 +838,10 @@ async def process_user_rejection(callback: CallbackQuery, state: FSMContext, bot
         await callback.message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
         await state.clear()
         await callback.answer()
+
+
+@service_booking_router.callback_query(F.data == "cancel_booking")
+async def cancel_booking(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("Действие отменено.", reply_markup=Keyboards.main_menu_kb())
+    await callback.answer()
