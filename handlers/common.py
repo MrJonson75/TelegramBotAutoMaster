@@ -2,7 +2,7 @@ from datetime import datetime
 import pytz
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from config import Config
@@ -70,24 +70,40 @@ async def cmd_diagnostic(message: Message):
     )
 
 @common_router.message(Command("admin"))
-async def cmd_admin(message: Message):
-    if str(message.from_user.id) != Config.ADMIN_ID:
+@common_router.callback_query(F.data.startswith("admin_page_"))
+async def cmd_admin(message_or_callback: Message | CallbackQuery, bot: Bot = None):
+    """Отображает активные заявки с пагинацией."""
+    is_callback = isinstance(message_or_callback, CallbackQuery)
+    message = message_or_callback.message if is_callback else message_or_callback
+    if str(message_or_callback.from_user.id) != Config.ADMIN_ID:
         await message.answer("Доступ только для мастера.")
+        if is_callback:
+            await message_or_callback.answer()
         return
+    page = 0
+    if is_callback and message_or_callback.data.startswith("admin_page_"):
+        page = int(message_or_callback.data.replace("admin_page_", ""))
+        if page < 0:
+            page = 0
     try:
         with Session() as session:
             tz = pytz.timezone('Asia/Dubai')
             now = datetime.now(tz)
-            bookings = session.query(Booking).filter(
+            bookings_query = session.query(Booking).filter(
                 Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED]),
                 (Booking.date > now.date()) | (
                     (Booking.date == now.date()) & (Booking.time >= now.time())
                 )
-            ).order_by(Booking.date, Booking.time).all()
+            ).order_by(Booking.date, Booking.time)
+            total_bookings = bookings_query.count()
+            bookings = bookings_query.limit(5).offset(page * 5).all()
             if not bookings:
                 await message.answer("Нет активных записей.", reply_markup=Keyboards.main_menu_kb())
+                if is_callback:
+                    await message_or_callback.answer()
                 return
-            await message.answer("📋 Активные записи:", reply_markup=Keyboards.main_menu_kb())
+            if page == 0 and not is_callback:
+                await message.answer(f"📋 Активные записи (страница {page + 1}):", reply_markup=Keyboards.main_menu_kb())
             for booking in bookings:
                 user = session.query(User).get(booking.user_id)
                 auto = session.query(Auto).get(booking.auto_id)
@@ -113,20 +129,26 @@ async def cmd_admin(message: Message):
                     ])
                 keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
                 if len(response) > 1024:
-                    logger.warning(f"Подпись слишком длинная ({len(response)} символов), отправляем без фото")
+                    logger.warning(f"Подпись слишком длинная ({len(response)} символов)")
                     await message.answer(response, reply_markup=keyboard)
                     continue
-                try:
-                    await message.answer(
-                        text=response,
-                        reply_markup=keyboard
-                    )
-                except (FileNotFoundError, ValueError) as e:
-                    logger.error(f"Ошибка загрузки фото для заявки {booking.id}: {str(e)}")
-                    await message.answer(response, reply_markup=keyboard)
+                await message.answer(response, reply_markup=keyboard)
+            # Клавиатура пагинации в отдельном сообщении
+            navigation_rows = []
+            if page > 0:
+                navigation_rows.append(InlineKeyboardButton(text="⬅ Предыдущая", callback_data=f"admin_page_{page-1}"))
+            if total_bookings > (page + 1) * 5:
+                navigation_rows.append(InlineKeyboardButton(text="Следующая ➡", callback_data=f"admin_page_{page+1}"))
+            if navigation_rows:
+                navigation_keyboard = InlineKeyboardMarkup(inline_keyboard=[navigation_rows])
+                await message.answer(f"Страница {page + 1}", reply_markup=navigation_keyboard)
+            if is_callback:
+                await message_or_callback.answer()
     except Exception as e:
         logger.error(f"Ошибка админ-панели: {str(e)}")
         await message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+        if is_callback:
+            await message_or_callback.answer()
 
 @common_router.callback_query(F.data.startswith("confirm_booking_"))
 async def confirm_booking(callback: CallbackQuery, bot: Bot):
@@ -223,13 +245,15 @@ async def process_rejection_reason(message: Message, state: FSMContext, bot: Bot
             # Уведомление пользователю
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
+            bot_link = getattr(Config, "BOT_LINK", "t.me/YourBotName")  # Уточнить ссылку
             message_text = (
                 f"❌ Ваша заявка #{booking.id} отклонена.\n"
                 f"Услуга: {booking.service_name}\n"
                 f"Авто: {auto.brand} {auto.license_plate}\n"
                 f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
                 f"Время: {booking.time.strftime('%H:%M')}\n"
-                f"Причина: {reason}"
+                f"Причина: {reason}\n"
+                f"Если вы не согласны, зайдите в 'Мои заявки' и отмените: {bot_link}"
             )
             logger.debug(f"Sending rejection to user {user.telegram_id} for booking {booking_id}")
             await bot.send_message(user.telegram_id, message_text)
@@ -305,6 +329,13 @@ async def process_new_time_selection(callback: CallbackQuery, state: FSMContext,
                 await state.clear()
                 await callback.answer()
                 return
+            # Проверка, что время не в прошлом
+            now = datetime.now(pytz.timezone('Asia/Dubai'))
+            if selected_date.date() < now.date() or (selected_date.date() == now.date() and selected_time < now.time()):
+                await callback.message.answer("Нельзя выбрать прошедшее время.", reply_markup=Keyboards.main_menu_kb())
+                await state.clear()
+                await callback.answer()
+                return
             booking.date = selected_date.date()
             booking.time = selected_time
             booking.status = BookingStatus.PENDING
@@ -314,13 +345,15 @@ async def process_new_time_selection(callback: CallbackQuery, state: FSMContext,
             # Уведомление пользователю
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
+            bot_link = getattr(Config, "BOT_LINK", "t.me/YourBotName")  # Уточнить ссылку
             message_text = (
                 f"📅 Время вашей заявки #{booking.id} изменено.\n"
                 f"Услуга: {booking.service_name}\n"
                 f"Авто: {auto.brand} {auto.license_plate}\n"
                 f"Новая дата: {booking.date.strftime('%d.%m.%Y')}\n"
                 f"Новое время: {booking.time.strftime('%H:%M')}\n"
-                f"Ожидайте подтверждения."
+                f"Ожидайте подтверждения.\n"
+                f"Если вы не согласны с новым временем, зайдите в 'Мои заявки' и отмените: {bot_link}"
             )
             logger.debug(f"Sending reschedule notification to user {user.telegram_id} for booking {booking_id}")
             await bot.send_message(user.telegram_id, message_text)
