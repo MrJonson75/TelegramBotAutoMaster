@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Enum, Date, Time, Text, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Enum, Date, Time, Text, DateTime, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import text
@@ -58,12 +58,23 @@ engine = create_engine("sqlite:///RemDiesel.db", echo=False)
 Session = sessionmaker(bind=engine)
 
 def init_db():
-    """Инициализирует базу данных, создавая таблицы, если они не существуют."""
+    """Инициализирует базу данных, создавая таблицы и применяя миграции."""
     Base.metadata.create_all(engine)
+    inspector = inspect(engine)
+    columns = [col['name'] for col in inspector.get_columns('bookings')]
     with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE bookings ADD COLUMN description TEXT;"))
-            conn.commit()
-        except Exception as e:
-            logger.info(f"Столбец description уже существует или другая ошибка: {str(e)}")
+        if 'description' not in columns:
+            try:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN description TEXT;"))
+                conn.commit()
+                logger.info("Added description column to bookings table")
+            except Exception as e:
+                logger.error(f"Ошибка добавления столбца description: {str(e)}")
+        if 'rejection_reason' not in columns:
+            try:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN rejection_reason TEXT;"))
+                conn.commit()
+                logger.info("Added rejection_reason column to bookings table")
+            except Exception as e:
+                logger.error(f"Ошибка добавления столбца rejection_reason: {str(e)}")
     return Session
