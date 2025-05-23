@@ -61,7 +61,7 @@ async def process_user_input(
         await state.update_data(last_message_id=sent_message.message_id)
         await state.set_state(next_state)
     except ValidationError as e:
-        logger.warning(f"Validation error for {field_key}: {e}, input: {value}")
+        logger.warning(f"Ошибка валидации для {field_key}: {e}, ввод: {value}")
         await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
         sent_message = await message.answer(error_message)
         await state.update_data(last_message_id=sent_message.message_id)
@@ -74,13 +74,13 @@ async def send_message_with_photo_fallback(
     caption: str,
     reply_markup
 ):
-    """Отправляет сообщение с фото, с fallback на текст при ошибке."""
-    logger.debug(f"Sending message with photo, type: {type(message_or_callback).__name__}")
+    """Отправляет сообщение с фото, с возвратом к тексту при ошибке."""
+    logger.debug(f"Отправка сообщения с фото, тип: {type(message_or_callback).__name__}")
     try:
         photo_path = get_photo_path(photo_key)
-        logger.debug(f"Attempting to load photo at: {photo_path}, exists: {os.path.exists(photo_path)}")
+        logger.debug(f"Попытка загрузки фото по пути: {photo_path}, существует: {os.path.exists(photo_path)}")
         if not os.path.exists(photo_path):
-            raise FileNotFoundError(f"Photo file not found at {photo_path}")
+            raise FileNotFoundError(f"Файл фото не найден по пути {photo_path}")
         if isinstance(message_or_callback, Message):
             sent_message = await message_or_callback.answer_photo(
                 photo=FSInputFile(photo_path),
@@ -94,7 +94,7 @@ async def send_message_with_photo_fallback(
                 reply_markup=reply_markup
             )
     except (FileNotFoundError, ValueError) as e:
-        logger.error(f"Photo loading error for {photo_key}: {str(e)}")
+        logger.error(f"Ошибка загрузки фото для {photo_key}: {str(e)}")
         if isinstance(message_or_callback, Message):
             sent_message = await message_or_callback.answer(caption, reply_markup=reply_markup)
         else:  # CallbackQuery
@@ -126,7 +126,7 @@ def master_only(handler):
     async def wrapper(callback_or_message: Union[CallbackQuery, Message], *args, **kwargs):
         user_id = callback_or_message.from_user.id
         if str(user_id) != ADMIN_ID:
-            logger.debug(f"Unauthorized access by user_id={user_id}")
+            logger.debug(f"Несанкционированный доступ пользователем user_id={user_id}")
             if isinstance(callback_or_message, CallbackQuery):
                 await callback_or_message.answer("Доступ только для мастера.")
             return
@@ -140,26 +140,26 @@ async def get_booking_context(
     message_or_callback: Union[Message, CallbackQuery],
     state: FSMContext
 ) -> tuple[Optional[Booking], Optional[User], Optional[Auto]]:
-    """Получает Booking, User, Auto по booking_id."""
+    """Получает данные о записи, пользователе и автомобиле по booking_id."""
     booking = session.query(Booking).get(booking_id)
     if not booking:
         await handle_error(
             message_or_callback, state, bot,
-            "Запись не найдена.", f"Booking not found for booking_id={booking_id}", Exception("Booking not found")
+            "Запись не найдена.", f"Запись не найдена для booking_id={booking_id}", Exception("Запись не найдена")
         )
         return None, None, None
     user = session.query(User).get(booking.user_id)
     if not user:
         await handle_error(
             message_or_callback, state, bot,
-            "Пользователь не найден.", f"User not found for booking_id={booking_id}", Exception("User not found")
+            "Пользователь не найден.", f"Пользователь не найден для booking_id={booking_id}", Exception("Пользователь не найден")
         )
         return None, None, None
     auto = session.query(Auto).get(booking.auto_id)
     if not auto:
         await handle_error(
             message_or_callback, state, bot,
-            "Автомобиль не найден.", f"Auto not found for booking_id={booking_id}", Exception("Auto not found")
+            "Автомобиль не найден.", f"Автомобиль не найден для booking_id={booking_id}", Exception("Автомобиль не найден")
         )
         return None, None, None
     return booking, user, auto
@@ -185,12 +185,12 @@ async def send_booking_notification(
         if booking.description:
             message += f"\nОписание: {booking.description}"
         await bot.send_message(chat_id, message, reply_markup=reply_markup)
-        logger.info(f"Notification sent to chat_id={chat_id} for booking_id={booking.id}")
+        logger.info(f"Уведомление отправлено в чат chat_id={chat_id} для записи booking_id={booking.id}")
     except TelegramForbiddenError:
-        logger.error(f"Failed to send notification to chat_id={chat_id}: user blocked bot")
+        logger.error(f"Не удалось отправить уведомление в чат chat_id={chat_id}: пользователь заблокировал бота")
         raise
     except Exception as e:
-        logger.error(f"Error sending notification to chat_id={chat_id} for booking_id={booking.id}: {str(e)}")
+        logger.error(f"Ошибка отправки уведомления в чат chat_id={chat_id} для записи booking_id={booking.id}: {str(e)}")
         raise
 
 async def set_user_state(
@@ -211,7 +211,7 @@ async def set_user_state(
     )
     await user_state.update_data(**data)
     await user_state.set_state(state)
-    logger.debug(f"Set state {state} for user_id={user_telegram_id}")
+    logger.debug(f"Установлено состояние {state} для пользователя user_id={user_telegram_id}")
 
 async def notify_master(bot: Bot, booking: Booking, user: User, auto: Auto):
     """Отправляет уведомление мастеру о новой записи."""
@@ -240,7 +240,7 @@ async def schedule_reminder(bot: Bot, booking: Booking, user: User, auto: Auto):
                 f"Напоминание: Через {REMINDER_TIME_MINUTES} минут запись:\nПользователь: {user.first_name} {user.last_name}"
             )
     except Exception as e:
-        logger.error(f"Error sending reminder to master for booking_id={booking.id}: {str(e)}")
+        logger.error(f"Ошибка отправки напоминания мастеру для записи booking_id={booking.id}: {str(e)}")
 
 async def schedule_user_reminder(bot: Bot, booking: Booking, user: User, auto: Auto):
     """Запланировать напоминание пользователю."""
@@ -256,15 +256,15 @@ async def schedule_user_reminder(bot: Bot, booking: Booking, user: User, auto: A
                 f"Напоминание: Через {REMINDER_TIME_MINUTES} минут ваша запись:\nЦена: {booking.price} ₽"
             )
     except Exception as e:
-        logger.error(f"Error sending reminder to user for booking_id={booking.id}: {str(e)}")
+        logger.error(f"Ошибка отправки напоминания пользователю для записи booking_id={booking.id}: {str(e)}")
 
 @service_booking_router.message(F.text == "Запись на ТО")
 async def start_booking(message: Message, state: FSMContext, bot: Bot):
     """Запускает процесс записи на ТО."""
-    logger.info(f"User {message.from_user.id} started booking")
+    logger.info(f"Пользователь {message.from_user.id} начал запись")
     try:
         # Отладочный вывод для проверки Session
-        logger.debug(f"Session class: {Session}, engine: {Session.kw['bind']}")
+        logger.debug(f"Класс Session: {Session}, движок: {Session.kw['bind']}")
         with Session() as session:
             user = session.query(User).filter_by(telegram_id=str(message.from_user.id)).first()
             if user:
@@ -287,7 +287,7 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
                 await state.update_data(last_message_id=sent_message.message_id)
                 await state.set_state(BookingStates.AwaitingFirstName)
     except Exception as e:
-        await handle_error(message, state, bot, "Ошибка. Попробуйте снова.", "Error checking user", e)
+        await handle_error(message, state, bot, "Ошибка. Попробуйте снова.", "Ошибка проверки пользователя", e)
 
 @service_booking_router.callback_query(BookingStates.AwaitingAutoSelection, F.data.startswith("auto_"))
 async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -299,19 +299,19 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
             if not auto:
                 await handle_error(
                     callback, state, bot,
-                    "Автомобиль не найден. Попробуйте снова.", f"Auto not found for auto_id={auto_id}", Exception("Auto not found")
+                    "Автомобиль не найден. Попробуйте снова.", f"Автомобиль не найден для auto_id={auto_id}", Exception("Автомобиль не найден")
                 )
                 await callback.answer()
                 return
             await state.update_data(auto_id=auto_id)
             await send_message_with_photo_fallback(
                 callback, state, bot, "booking_menu",
-                MESSAGES["booking"], Keyboards.services_kb()
+                MESSAGES.get("booking", "Выберите услугу для записи на ТО"), Keyboards.services_kb()
             )
             await state.set_state(BookingStates.AwaitingService)
             await callback.answer()
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", "Error selecting auto", e)
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", "Ошибка выбора автомобиля", e)
         await callback.answer()
 
 @service_booking_router.callback_query(BookingStates.AwaitingAutoSelection, F.data == "add_new_auto")
@@ -363,15 +363,15 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
                 )
                 session.add(user)
                 session.commit()
-                logger.info(f"User {message.from_user.id} registered")
+                logger.info(f"Пользователь {message.from_user.id} зарегистрирован")
             await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
             sent_message = await message.answer("Введите марку автомобиля:")
             await state.update_data(last_message_id=sent_message.message_id)
             await state.set_state(BookingStates.AwaitingAutoBrand)
         except Exception as e:
-            await handle_error(message, state, bot, "Ошибка регистрации. Попробуйте снова.", "Error registering user", e)
+            await handle_error(message, state, bot, "Ошибка регистрации. Попробуйте снова.", "Ошибка регистрации пользователя", e)
     except ValidationError as e:
-        logger.warning(f"Validation error for phone: {e}, input: {phone}")
+        logger.warning(f"Ошибка валидации номера телефона: {e}, ввод: {phone}")
         await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
         sent_message = await message.answer("Некорректный номер телефона (10–15 цифр, например, +79991234567). Введите снова:")
         await state.update_data(last_message_id=sent_message.message_id)
@@ -397,13 +397,13 @@ async def process_auto_year(message: Message, state: FSMContext, bot: Bot):
         await state.update_data(last_message_id=sent_message.message_id)
         await state.set_state(BookingStates.AwaitingAutoVin)
     except (ValidationError, ValueError) as e:
-        logger.warning(f"Validation error for year: {e}, input: {message.text}")
+        logger.warning(f"Ошибка валидации года выпуска: {e}, ввод: {message.text}")
         await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
         sent_message = await message.answer(f"Некорректный год (1900–{datetime.today().year}). Введите снова:")
         await state.update_data(last_message_id=sent_message.message_id)
 
 @service_booking_router.message(BookingStates.AwaitingAutoVin, F.text)
-async def Process_auto_vin(message: Message, state: FSMContext, bot: Bot):
+async def process_auto_vin(message: Message, state: FSMContext, bot: Bot):
     await process_user_input(
         message, state, bot,
         AutoInput.validate_vin, "vin",
@@ -435,7 +435,7 @@ async def process_auto_license_plate(message: Message, state: FSMContext, bot: B
                 )
                 session.add(auto)
                 session.commit()
-                logger.info(f"Auto added for user {message.from_user.id}")
+                logger.info(f"Автомобиль добавлен для пользователя {message.from_user.id}")
                 await state.update_data(auto_id=auto.id)
             await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
             sent_message = await message.answer(
@@ -445,9 +445,9 @@ async def process_auto_license_plate(message: Message, state: FSMContext, bot: B
             await state.update_data(last_message_id=sent_message.message_id)
             await state.set_state(BookingStates.AwaitingAddAnotherAuto)
         except Exception as e:
-            await handle_error(message, state, bot, "Ошибка добавления автомобиля. Попробуйте снова.", "Error adding auto", e)
+            await handle_error(message, state, bot, "Ошибка добавления автомобиля. Попробуйте снова.", "Ошибка добавления автомобиля", e)
     except ValidationError as e:
-        logger.warning(f"Validation error for license_plate: {e}, input: {license_plate}")
+        logger.warning(f"Ошибка валидации госномера: {e}, ввод: {license_plate}")
         await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
         sent_message = await message.answer("Госномер слишком короткий или длинный (5–20 символов). Введите снова:")
         await state.update_data(last_message_id=sent_message.message_id)
@@ -467,12 +467,12 @@ async def continue_booking(callback: CallbackQuery, state: FSMContext, bot: Bot)
     try:
         await send_message_with_photo_fallback(
             callback, state, bot, "booking_final",
-            MESSAGES["booking"], Keyboards.services_kb()
+            MESSAGES.get("booking", "Выберите услугу для записи на ТО"), Keyboards.services_kb()
         )
         await state.set_state(BookingStates.AwaitingService)
         await callback.answer()
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", "Error continuing booking", e)
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", "Ошибка продолжения записи", e)
         await callback.answer()
 
 @service_booking_router.callback_query(BookingStates.AwaitingService, F.data.startswith("service_"))
@@ -611,7 +611,7 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
             if not auto:
                 await handle_error(
                     callback, state, bot,
-                    "Автомобиль не найден. Начните заново.", f"Auto not found for auto_id={data['auto_id']}", Exception("Auto not found")
+                    "Автомобиль не найден. Начните заново.", f"Автомобиль не найден для auto_id={data['auto_id']}", Exception("Автомобиль не найден")
                 )
                 await callback.answer()
                 return
@@ -628,7 +628,7 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
             )
             session.add(booking)
             session.commit()
-            logger.info(f"Booking created: {booking.id} for user {callback.from_user.id}")
+            logger.info(f"Запись создана: {booking.id} для пользователя {callback.from_user.id}")
             await notify_master(bot, booking, user, auto)
             asyncio.create_task(schedule_reminder(bot, booking, user, auto))
             asyncio.create_task(schedule_user_reminder(bot, booking, user, auto))
@@ -642,7 +642,7 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
             await state.clear()
             await callback.answer()
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка записи. Попробуйте снова.", "Error creating booking", e)
+        await handle_error(callback, state, bot, "Ошибка записи. Попробуйте снова.", "Ошибка создания записи", e)
         await callback.answer()
 
 @service_booking_router.callback_query(F.data.startswith("confirm_booking_"))
@@ -667,10 +667,10 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
             )
             await callback.answer("Запись подтверждена.")
     except TelegramForbiddenError:
-        logger.error(f"Failed to send confirmation to user for booking_id={booking_id}: user blocked bot")
+        logger.error(f"Не удалось отправить подтверждение пользователю для записи booking_id={booking_id}: пользователь заблокировал бота")
         await callback.answer("Ошибка: пользователь заблокировал бота.")
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", f"Error confirming booking_id={booking_id}", e)
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", f"Ошибка подтверждения записи booking_id={booking_id}", e)
         await callback.answer()
 
 @service_booking_router.callback_query(F.data.startswith("reschedule_booking_"))
@@ -687,10 +687,10 @@ async def reschedule_booking(callback: CallbackQuery, state: FSMContext, bot: Bo
         await state.update_data(booking_id=booking_id, master_action="reschedule")
         await callback.message.answer("Введите новое время (например, 14:30):")
         await state.set_state(BookingStates.AwaitingMasterTime)
-        logger.info(f"Master requested new time for booking_id={booking_id}")
+        logger.info(f"Мастер запросил новое время для записи booking_id={booking_id}")
         await callback.answer()
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", f"Error rescheduling booking_id={booking_id}", e)
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова.", f"Ошибка переноса записи booking_id={booking_id}", e)
         await callback.answer()
 
 @service_booking_router.callback_query(F.data.startswith("reject_booking_"))
@@ -701,7 +701,7 @@ async def reject_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await state.update_data(booking_id=booking_id, master_action="reject")
     await callback.message.answer("Укажите причину отказа:")
     await state.set_state(BookingStates.AwaitingMasterResponse)
-    logger.info(f"Master requested rejection reason for booking_id={booking_id}")
+    logger.info(f"Мастер запросил причину отказа для записи booking_id={booking_id}")
     await callback.answer()
 
 @service_booking_router.message(BookingStates.AwaitingMasterTime, F.text)
@@ -713,7 +713,7 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
         await handle_error(
             message, state, bot,
             "Ошибка: данные состояния отсутствуют. Попробуйте снова.",
-            "Invalid FSM state data", Exception("Invalid FSM state")
+            "Некорректные данные состояния FSM", Exception("Некорректные данные состояния")
         )
         return
     booking_id = data.get("booking_id")
@@ -738,7 +738,7 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
             await message.answer("Новое время отправлено пользователю. Ожидается подтверждение.")
             await state.clear()
     except ValueError:
-        logger.warning(f"Invalid time format '{message.text}' for booking_id={booking_id}")
+        logger.warning(f"Некорректный формат времени '{message.text}' для записи booking_id={booking_id}")
         await message.answer("Некорректный формат времени. Введите снова (например, 14:30):")
     except TelegramForbiddenError:
         await message.answer("Ошибка: пользователь заблокировал бота.")
@@ -747,7 +747,7 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
     except Exception as e:
         await handle_error(
             message, state, bot,
-            "Критическая ошибка. Попробуйте снова.", f"Error processing new time for booking_id={booking_id}", e
+            "Критическая ошибка. Попробуйте снова.", f"Ошибка обработки нового времени для записи booking_id={booking_id}", e
         )
 
 @service_booking_router.message(BookingStates.AwaitingMasterResponse, F.text)
@@ -759,7 +759,7 @@ async def process_master_rejection(message: Message, state: FSMContext, bot: Bot
         await handle_error(
             message, state, bot,
             "Ошибка: данные состояния отсутствуют. Попробуйте снова.",
-            "Invalid FSM state data", Exception("Invalid FSM state")
+            "Некорректные данные состояния FSM", Exception("Некорректные данные состояния")
         )
         return
     booking_id = data.get("booking_id")
@@ -782,7 +782,7 @@ async def process_master_rejection(message: Message, state: FSMContext, bot: Bot
     except Exception as e:
         await handle_error(
             message, state, bot,
-            "Критическая ошибка. Попробуйте снова.", f"Error processing rejection for booking_id={booking_id}", e
+            "Критическая ошибка. Попробуйте снова.", f"Ошибка обработки отказа для записи booking_id={booking_id}", e
         )
 
 @service_booking_router.callback_query(F.data.startswith("confirm_reschedule_"))
@@ -796,14 +796,14 @@ async def process_user_confirmation(callback: CallbackQuery, state: FSMContext, 
                 await callback.answer()
                 return
             if str(callback.from_user.id) != str(booking.user.telegram_id):
-                logger.warning(f"Unauthorized access: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
+                logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
                 await callback.answer("Доступ только для владельца записи.")
                 return
             if not booking.proposed_time:
                 await handle_error(
                     callback, state, bot,
-                    "Ошибка: предложенное время не найдено.", f"No proposed time for booking_id={booking_id}",
-                    Exception("No proposed time")
+                    "Ошибка: предложенное время не найдено.", f"Предложенное время не найдено для booking_id={booking_id}",
+                    Exception("Предложенное время не найдено")
                 )
                 await callback.answer()
                 return
@@ -830,7 +830,7 @@ async def process_user_confirmation(callback: CallbackQuery, state: FSMContext, 
     except Exception as e:
         await handle_error(
             callback, state, bot,
-            "Ошибка. Попробуйте снова.", f"Error confirming reschedule for booking_id={booking_id}", e
+            "Ошибка. Попробуйте снова.", f"Ошибка подтверждения переноса для записи booking_id={booking_id}", e
         )
         await callback.answer()
 
@@ -845,7 +845,7 @@ async def process_user_rejection(callback: CallbackQuery, state: FSMContext, bot
                 await callback.answer()
                 return
             if str(callback.from_user.id) != str(booking.user.telegram_id):
-                logger.warning(f"Unauthorized access: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
+                logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
                 await callback.answer("Доступ только для владельца записи.")
                 return
             booking.status = BookingStatus.REJECTED
@@ -871,7 +871,7 @@ async def process_user_rejection(callback: CallbackQuery, state: FSMContext, bot
     except Exception as e:
         await handle_error(
             callback, state, bot,
-            "Ошибка. Попробуйте снова.", f"Error rejecting reschedule for booking_id={booking_id}", e
+            "Ошибка. Попробуйте снова.", f"Ошибка отклонения переноса для записи booking_id={booking_id}", e
         )
         await callback.answer()
 
