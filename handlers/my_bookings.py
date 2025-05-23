@@ -59,7 +59,7 @@ async def list_bookings(message: Message):
                 )
                 return
             try:
-                photo_path = Config.get_photo_path("booking")
+                photo_path = Config.get_photo_path("bookings")
                 await message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response,
@@ -161,7 +161,7 @@ async def list_history(message: Message):
                 await message.answer(response, reply_markup=Keyboards.main_menu_kb())
                 return
             try:
-                photo_path = Config.get_photo_path("booking")
+                photo_path = Config.get_photo_path("bookings_list")
                 await message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response,
