@@ -4,6 +4,9 @@ from config import Config
 from database import Booking, BookingStatus
 from datetime import datetime, timedelta, time
 from sqlalchemy.orm import Session
+from utils import setup_logger
+
+logger = setup_logger(__name__)
 
 class Keyboards:
     """Класс для управления клавиатурами бота."""
@@ -17,6 +20,7 @@ class Keyboards:
         builder.button(text="Запись на ремонт")
         builder.button(text="Быстрый ответ - Диагностика по фото")
         builder.button(text="Мои записи")
+        builder.button(text="История записей")
         builder.button(text="О мастере")
         builder.adjust(2)
         return builder.as_markup(resize_keyboard=True)
@@ -31,9 +35,9 @@ class Keyboards:
 
     @staticmethod
     def photo_upload_kb() -> InlineKeyboardMarkup:
-        """Создаёт инлайн-клавиатуру для завершения загрузки фото."""
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Готово", callback_data="photos_ready")]
+            [InlineKeyboardButton(text="✅ Готово", callback_data="photos_ready")],
+            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip_photos")]
         ])
 
     @staticmethod
@@ -145,7 +149,7 @@ class Keyboards:
         booked_slots = []
         for b in existing_bookings:
             start_time = b.time
-            duration = Config.SERVICES[[s["name"] for s in Config.SERVICES].index(b.service_name)]["duration_minutes"]
+            duration = Config.SERVICES[[s["name"] for s in Config.SERVICES].index(b.service_name)]["duration_minutes"] if b.service_name != "Ремонт" else 60
             end_time = (datetime.combine(date.today(), start_time) + timedelta(minutes=duration)).time()
             booked_slots.append((start_time, end_time))
 

@@ -2,8 +2,12 @@ import os
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Enum, Date, Time, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.sql import text
 import enum
 from datetime import datetime
+from utils import setup_logger
+
+logger = setup_logger(__name__)
 
 Base = declarative_base()
 
@@ -39,7 +43,7 @@ class Booking(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     auto_id = Column(Integer, ForeignKey('auto.id'), nullable=False)
     service_name = Column(String, nullable=False)
-    description = Column(Text, nullable=True)  # Новое поле для описания проблемы
+    description = Column(Text, nullable=True)
     date = Column(Date, nullable=False)
     time = Column(Time, nullable=False)
     proposed_time = Column(Time, nullable=True)
@@ -58,7 +62,8 @@ def init_db():
     Base.metadata.create_all(engine)
     with engine.connect() as conn:
         try:
-            conn.execute("ALTER TABLE bookings ADD COLUMN description TEXT;")
+            conn.execute(text("ALTER TABLE bookings ADD COLUMN description TEXT;"))
+            conn.commit()
         except Exception as e:
             logger.info(f"Столбец description уже существует или другая ошибка: {str(e)}")
     return Session
