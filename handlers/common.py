@@ -4,16 +4,12 @@ import pytz
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
-from sqlalchemy.orm import Session
-
-from keyboards.main_kb import Keyboards  # Обновлённый импорт
 from config import Config
+from database import Session, User, Auto, Booking, BookingStatus
+from keyboards.main_kb import Keyboards
 from utils import setup_logger
 
-from database import Booking, BookingStatus, User, Auto, Session
-
 logger = setup_logger(__name__)
-
 common_router = Router()
 
 # Обработчик команды /start
@@ -33,6 +29,7 @@ async def cmd_start(message: Message):
             reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
 
+
 # Обработчик текстового сообщения "📞 Контакты/как проехать"
 @common_router.message(F.text == "📞 Контакты/как проехать")
 async def show_contacts(message: Message):
@@ -50,22 +47,26 @@ async def show_contacts(message: Message):
             reply_markup=Keyboards.main_menu_kb()  # Обновлено
         )
 
-# Обработчик текстового сообщения "О мастере"
+
+
+
 @common_router.message(F.text == "О мастере")
-async def show_about_master(message: Message):
+async def cmd_about_master(message: Message):
     try:
         photo_path = Config.get_photo_path("about_master")
-        await message.answer_photo(
-            photo=FSInputFile(photo_path),
-            caption=Config.MESSAGES["about_master"],
-            reply_markup=Keyboards.main_menu_kb()  # Обновлено
-        )
-    except (FileNotFoundError, ValueError) as e:
-        logger.error(f"Ошибка загрузки фото для 'О мастере': {str(e)}")
-        await message.answer(
-            Config.MESSAGES["about_master"],
-            reply_markup=Keyboards.main_menu_kb()  # Обновлено
-        )
+        await message.answer_photo(photo=FSInputFile(photo_path))
+        await message.answer(Config.MESSAGES["about_master"], reply_markup=Keyboards.main_menu_kb())
+
+    except Exception as e:
+        logger.error(f"Ошибка отправки информации о мастере: {str(e)}")
+        await message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+
+@common_router.message(F.text == "Быстрый ответ - Диагностика по фото")
+async def cmd_diagnostic(message: Message):
+    await message.answer(
+        "Выберите способ диагностики:",
+        reply_markup=Keyboards.diagnostic_choice_kb()
+    )
 
 @common_router.message(Command("admin"))
 async def cmd_admin(message: Message):
@@ -73,7 +74,7 @@ async def cmd_admin(message: Message):
         await message.answer("Доступ только для мастера.")
         return
     try:
-        with Session() as session:  # Контекстный менеджер для сессии
+        with Session() as session:
             tz = pytz.timezone('Asia/Dubai')
             now = datetime.now(tz)
             bookings = session.query(Booking).filter(
@@ -93,10 +94,11 @@ async def cmd_admin(message: Message):
                     BookingStatus.PENDING: "Ожидает",
                     BookingStatus.CONFIRMED: "Подтверждено"
                 }[booking.status]
+                description = f"\nОписание: {booking.description}" if booking.description else ""
                 response += (
-                    f"Заявка #{booking.id}: {booking.service_name} ({booking.price} ₽), "
+                    f"Заявка #{booking.id}: {booking.service_name} ({booking.price or 'не указана'} ₽), "
                     f"{user.first_name} {user.last_name}, {auto.brand} {auto.license_plate}, "
-                    f"{booking.date.strftime('%d.%m.%Y')} {booking.time.strftime('%H:%M')}, {status}\n"
+                    f"{booking.date.strftime('%d.%m.%Y')} {booking.time.strftime('%H:%M')}, {status}{description}\n"
                 )
             if len(response) > 1024:
                 await message.answer(response, reply_markup=Keyboards.main_menu_kb())
