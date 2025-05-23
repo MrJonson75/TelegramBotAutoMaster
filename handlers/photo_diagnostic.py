@@ -72,7 +72,7 @@ async def start_diagnostic(message: Message, state: FSMContext, bot: Bot):
     """Запускает процесс диагностики, предлагая выбор варианта."""
     logger.info(f"Начало диагностики фото для пользователя {message.from_user.id}")
     try:
-        # await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+        await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
         photo_path = get_photo_path("photo_diagnostic")
         sent_message = await message.answer_photo(
             photo=FSInputFile(photo_path),

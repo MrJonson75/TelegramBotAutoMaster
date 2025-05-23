@@ -53,10 +53,3 @@ async def cmd_about_master(message: Message):
         logger.error(f"Ошибка отправки информации о мастере: {str(e)}")
         await message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
 
-@common_router.message(F.text == "Быстрый ответ - Диагностика по фото")
-async def cmd_diagnostic(message: Message):
-    """Обработчик текстового сообщения 'Быстрый ответ - Диагностика по фото'."""
-    await message.answer(
-        "Выберите способ диагностики:",
-        reply_markup=Keyboards.diagnostic_choice_kb()
-    )
