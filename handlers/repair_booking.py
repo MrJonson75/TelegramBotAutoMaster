@@ -34,11 +34,40 @@ async def start_repair_booking(message: Message, state: FSMContext):
                 return
             autos = session.query(Auto).filter_by(user_id=user.id).all()
             if not autos:
-                await message.answer("У вас нет зарегистрированных автомобилей. Добавьте авто.",
-                                     reply_markup=Keyboards.auto_selection_kb(autos))
+                response = "У вас нет зарегистрированных автомобилей. Добавьте авто."
+                if len(response) > 1024:
+                    logger.warning(f"Подпись слишком длинная ({len(response)} символов), отправляем без фото")
+                    await message.answer(response, reply_markup=Keyboards.auto_selection_kb(autos))
+                    await state.set_state(RepairBookingStates.AwaitingAuto)
+                    return
+                try:
+                    photo_path = Config.get_photo_path("booking_repair")
+                    await message.answer_photo(
+                        photo=FSInputFile(photo_path),
+                        caption=response,
+                        reply_markup=Keyboards.auto_selection_kb(autos)
+                    )
+                except (FileNotFoundError, ValueError) as e:
+                    logger.error(f"Ошибка загрузки фото для начала записи на ремонт: {str(e)}")
+                    await message.answer(response, reply_markup=Keyboards.auto_selection_kb(autos))
                 await state.set_state(RepairBookingStates.AwaitingAuto)
                 return
-            await message.answer("Выберите автомобиль для ремонта:", reply_markup=Keyboards.auto_selection_kb(autos))
+            response = "Выберите автомобиль для ремонта:"
+            if len(response) > 1024:
+                logger.warning(f"Подпись слишком длинная ({len(response)} символов), отправляем без фото")
+                await message.answer(response, reply_markup=Keyboards.auto_selection_kb(autos))
+                await state.set_state(RepairBookingStates.AwaitingAuto)
+                return
+            try:
+                photo_path = Config.get_photo_path("booking_repair")
+                await message.answer_photo(
+                    photo=FSInputFile(photo_path),
+                    caption=response,
+                    reply_markup=Keyboards.auto_selection_kb(autos)
+                )
+            except (FileNotFoundError, ValueError) as e:
+                logger.error(f"Ошибка загрузки фото для начала записи на ремонт: {str(e)}")
+                await message.answer(response, reply_markup=Keyboards.auto_selection_kb(autos))
             await state.set_state(RepairBookingStates.AwaitingAuto)
     except Exception as e:
         logger.error(f"Ошибка начала записи на ремонт: {str(e)}")
@@ -67,7 +96,7 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext):
                 await callback.answer()
                 return
             try:
-                photo_path = Config.get_photo_path("booking_repair")
+                photo_path = Config.get_photo_path("booking_repair_sel")
                 await callback.message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response
@@ -104,12 +133,14 @@ async def process_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     photos = data.get("photos", [])
     if len(photos) >= 3:
-        await message.answer("Максимум 3 фото. Нажмите 'Готово' или 'Пропустить'.")
+        await message.answer("Максимум 3 фото. Нажмите 'Готово' или 'Пропустить'.",
+                            reply_markup=Keyboards.photo_upload_kb())
         return
     photo_id = message.photo[-1].file_id
     photos.append(photo_id)
     await state.update_data(photos=photos)
-    await message.answer(f"Фото {len(photos)}/3 загружено. Добавьте ещё или нажмите 'Готово'.")
+    await message.answer(f"Фото {len(photos)}/3 загружено. Добавьте ещё или нажмите 'Готово'.",
+                        reply_markup=Keyboards.photo_upload_kb())
 
 @repair_booking_router.callback_query(RepairBookingStates.AwaitingPhotos, F.data == "photos_ready")
 async def process_photos_ready(callback: CallbackQuery, state: FSMContext):
