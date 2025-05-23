@@ -59,7 +59,22 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext):
                 await callback.answer()
                 return
             await state.update_data(auto_id=auto_id)
-            await callback.message.answer("Опишите проблему с автомобилем (например, 'стук в двигателе'):")
+            response = f"Выбран автомобиль: {auto.brand} {auto.license_plate}\nОпишите проблему с автомобилем (например, 'стук в двигателе'):"
+            if len(response) > 1024:
+                logger.warning(f"Подпись слишком длинная ({len(response)} символов), отправляем без фото")
+                await callback.message.answer(response)
+                await state.set_state(RepairBookingStates.AwaitingDescription)
+                await callback.answer()
+                return
+            try:
+                photo_path = Config.get_photo_path("booking_repair")
+                await callback.message.answer_photo(
+                    photo=FSInputFile(photo_path),
+                    caption=response
+                )
+            except (FileNotFoundError, ValueError) as e:
+                logger.error(f"Ошибка загрузки фото для выбора автомобиля: {str(e)}")
+                await callback.message.answer(response)
             await state.set_state(RepairBookingStates.AwaitingDescription)
             await callback.answer()
     except Exception as e:
