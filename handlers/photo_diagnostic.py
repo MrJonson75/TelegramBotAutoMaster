@@ -68,70 +68,78 @@ async def cache_result(image_hash: str, result: str):
         logger.error(f"Ошибка кэширования: {str(e)}")
 
 @photo_diagnostic_router.message(F.text == "Быстрый ответ - Диагностика по фото")
-async def start_diagnostic(message: Message, state: FSMContext):
+async def start_diagnostic(message: Message, state: FSMContext, bot: Bot):
     """Запускает процесс диагностики, предлагая выбор варианта."""
-    logger.info(f"Starting photo diagnostic for user {message.from_user.id}")
+    logger.info(f"Начало диагностики фото для пользователя {message.from_user.id}")
     try:
+        # await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
         photo_path = get_photo_path("photo_diagnostic")
-        await message.answer_photo(
+        sent_message = await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption="Выберите способ диагностики:",
             reply_markup=Keyboards.diagnostic_choice_kb()
         )
+        await state.update_data(last_message_id=sent_message.message_id)
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для диагностики: {str(e)}")
-        await message.answer(
+        await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await message.answer(
             "Выберите способ диагностики:",
             reply_markup=Keyboards.diagnostic_choice_kb()
         )
+        await state.update_data(last_message_id=sent_message.message_id)
     await state.set_state(DiagnosticStates.AwaitingChoice)
     logger.debug(f"Set state to AwaitingChoice for user {message.from_user.id}")
-
 
 @photo_diagnostic_router.callback_query(F.data.in_(["text_diagnostic", "start_photo_diagnostic"]))
 async def handle_diagnostic_choice(callback: CallbackQuery, state: FSMContext, bot: Bot):
     logger.debug(f"Received callback data: {callback.data} for user {callback.from_user.id}")
     try:
-        # Сохраняем ID сообщения для удаления
+        # Сохраняем ID сообщения для удаления (уже есть)
         await state.update_data(last_message_id=callback.message.message_id)
 
         if callback.data == "text_diagnostic":
             await delete_previous_message(bot, callback.message.chat.id, callback.message.message_id)
-            message = await callback.message.answer(
+            sent_message = await callback.message.answer(
                 "Опишите проблему с автомобилем текстом (например, 'стучит подвеска').",
                 reply_markup=Keyboards.main_menu_kb()
             )
-            await state.update_data(last_message_id=message.message_id)
+            await state.update_data(last_message_id=sent_message.message_id)
             await state.set_state(DiagnosticStates.AwaitingTextDescription)
         elif callback.data == "start_photo_diagnostic":
             await delete_previous_message(bot, callback.message.chat.id, callback.message.message_id)
-            message = await callback.message.answer(
+            sent_message = await callback.message.answer(
                 "📸 Нажмите на скрепку 📎 или перетащите 1–3 фото для диагностики...",
                 reply_markup=Keyboards.photo_upload_kb()
             )
-            await state.update_data(last_message_id=message.message_id)
+            await state.update_data(last_message_id=sent_message.message_id)
             await state.set_state(DiagnosticStates.AwaitingPhoto)
             await state.update_data(photos=[])
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка обработки callback {callback.data}: {str(e)}")
-        await callback.message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
+        await delete_previous_message(bot, callback.message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await callback.message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
+        await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
         await callback.answer()
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingTextDescription, F.text)
-async def handle_text_description(message: Message, state: FSMContext):
+async def handle_text_description(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает текстовое описание проблемы."""
     try:
         description = message.text.strip()
         if len(description) < 5:
-            await message.answer("Описание слишком короткое. Пожалуйста, опишите подробнее.", reply_markup=Keyboards.main_menu_kb())
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer("Описание слишком короткое. Пожалуйста, опишите подробнее.", reply_markup=Keyboards.main_menu_kb())
+            await state.update_data(last_message_id=sent_message.message_id)
             return
         logger.info(f"Processing text description: {description[:50]}... for user {message.from_user.id}")
         analysis = await analyze_text_description(description)
         try:
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
             photo_path = get_photo_path("photo_result_diagnostic")
-            await message.answer_photo(
+            sent_message = await message.answer_photo(
                 photo=FSInputFile(photo_path),
                 caption=f"🔧 Диагностика:\n"
                         f"Анализ:\n{analysis}\n"
@@ -139,32 +147,41 @@ async def handle_text_description(message: Message, state: FSMContext):
                         "📋 Рекомендуется очный осмотр для подтверждения.",
                 reply_markup=Keyboards.main_menu_kb()
             )
+            await state.update_data(last_message_id=sent_message.message_id)
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"Ошибка отправки фото результата: {str(e)}")
-            await message.answer(
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer(
                 f"🔧 Диагностика:\n"
                 f"Анализ:\n{analysis}\n"
                 f"Описание проблемы: {description}\n\n"
                 "📋 Рекомендуется очный осмотр для подтверждения.",
                 reply_markup=Keyboards.main_menu_kb()
             )
+            await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
         logger.debug(f"Cleared state for user {message.from_user.id}")
     except Exception as e:
         logger.error(f"Ошибка обработки текстового описания: {str(e)}")
-        await message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
+        await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
+        await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingPhoto, F.photo)
-async def handle_photo(message: Message, state: FSMContext):
+async def handle_photo(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает загруженные фото."""
     try:
         photo = message.photo[-1]
         if not validate_photo_size(photo):
-            await message.answer("Ошибка: фото слишком маленькое (мин. 640x480).", reply_markup=Keyboards.main_menu_kb())
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer("Ошибка: фото слишком маленькое (мин. 640x480).", reply_markup=Keyboards.main_menu_kb())
+            await state.update_data(last_message_id=sent_message.message_id)
             return
         if photo.file_size > 5 * 1024 * 1024:
-            await message.answer("Ошибка: файл слишком большой (макс. 5MB).", reply_markup=Keyboards.main_menu_kb())
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer("Ошибка: файл слишком большой (макс. 5MB).", reply_markup=Keyboards.main_menu_kb())
+            await state.update_data(last_message_id=sent_message.message_id)
             return
 
         file = await message.bot.get_file(photo.file_id)
@@ -172,7 +189,9 @@ async def handle_photo(message: Message, state: FSMContext):
         image_data = photo_bytes.read()
 
         if not validate_photo_format(image_data):
-            await message.answer("Ошибка: поддерживаются только JPEG и PNG.", reply_markup=Keyboards.main_menu_kb())
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer("Ошибка: поддерживаются только JPEG и PNG.", reply_markup=Keyboards.main_menu_kb())
+            await state.update_data(last_message_id=sent_message.message_id)
             return
 
         data = await state.get_data()
@@ -182,34 +201,42 @@ async def handle_photo(message: Message, state: FSMContext):
 
         logger.debug(f"Photo uploaded, total: {len(photos)} for user {message.from_user.id}")
         if len(photos) < 3:
-            await message.answer(
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer(
                 f"Фото загружено.\n"
                 f"{get_progress_bar(len(photos))}\n"
                 f"Нажмите на скрепку 📎 для следующего фото или выберите \"Готово\".",
                 reply_markup=Keyboards.photo_upload_kb()
             )
+            await state.update_data(last_message_id=sent_message.message_id)
         else:
-            await message.answer(
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer(
                 f"Фото загружено.\n"
                 f"{get_progress_bar(len(photos))}\n"
                 f"Нажмите \"Готово\" для анализа.",
                 reply_markup=Keyboards.photo_upload_kb()
             )
+            await state.update_data(last_message_id=sent_message.message_id)
     except Exception as e:
         logger.error(f"Ошибка обработки фото: {str(e)}")
-        await message.answer(
+        await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await message.answer(
             "Ошибка загрузки фото. Попробуйте снова.",
             reply_markup=Keyboards.photo_upload_kb()
         )
+        await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
 
 @photo_diagnostic_router.callback_query(DiagnosticStates.AwaitingPhoto, F.data == "photos_ready")
-async def process_photos(callback: CallbackQuery, state: FSMContext):
+async def process_photos(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Обрабатывает все загруженные фото и запрашивает описание."""
     data = await state.get_data()
     photos = data.get("photos", [])
     if not photos:
-        await callback.message.answer("Фото не загружены. Отправьте фото снова.", reply_markup=Keyboards.main_menu_kb())
+        await delete_previous_message(bot, callback.message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await callback.message.answer("Фото не загружены. Отправьте фото снова.", reply_markup=Keyboards.main_menu_kb())
+        await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
         await callback.answer()
         return
@@ -227,16 +254,20 @@ async def process_photos(callback: CallbackQuery, state: FSMContext):
         else:
             await state.update_data(photos=photos)
 
-        await callback.message.answer(
+        await delete_previous_message(bot, callback.message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await callback.message.answer(
             "Опишите проблему с автомобилем текстом (например, 'горит чек, код P0420').",
             reply_markup=Keyboards.main_menu_kb()
         )
+        await state.update_data(last_message_id=sent_message.message_id)
         await state.set_state(DiagnosticStates.AwaitingPhotoDescription)
         logger.debug(f"Set state to AwaitingPhotoDescription for user {callback.from_user.id}")
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка анализа: {str(e)}")
-        await callback.message.answer("Ошибка анализа. Отправьте фото снова.", reply_markup=Keyboards.main_menu_kb())
+        await delete_previous_message(bot, callback.message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await callback.message.answer("Ошибка анализа. Отправьте фото снова.", reply_markup=Keyboards.main_menu_kb())
+        await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
         await callback.answer()
     finally:
@@ -246,12 +277,14 @@ async def process_photos(callback: CallbackQuery, state: FSMContext):
                 os.remove(file_path)
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingPhotoDescription, F.text)
-async def handle_photo_description(message: Message, state: FSMContext):
+async def handle_photo_description(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает текстовое описание после загрузки фото."""
     try:
         description = message.text.strip()
         if len(description) < 5:
-            await message.answer("Описание слишком короткое. Пожалуйста, опишите подробнее.", reply_markup=Keyboards.main_menu_kb())
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer("Описание слишком короткое. Пожалуйста, опишите подробнее.", reply_markup=Keyboards.main_menu_kb())
+            await state.update_data(last_message_id=sent_message.message_id)
             return
         data = await state.get_data()
         photos = data.get("photos", [])
@@ -265,8 +298,9 @@ async def handle_photo_description(message: Message, state: FSMContext):
             logger.info(f"Processing description without photos: {description[:50]}... for user {message.from_user.id}")
             analysis = await analyze_text_description(description)
         try:
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
             photo_path = get_photo_path("photo_result_diagnostic")
-            await message.answer_photo(
+            sent_message = await message.answer_photo(
                 photo=FSInputFile(photo_path),
                 caption=f"🔧 Диагностика:\n"
                         f"Анализ:\n{analysis}\n"
@@ -274,53 +308,66 @@ async def handle_photo_description(message: Message, state: FSMContext):
                         "📋 Рекомендуется очный осмотр для подтверждения.",
                 reply_markup=Keyboards.main_menu_kb()
             )
+            await state.update_data(last_message_id=sent_message.message_id)
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"Ошибка отправки фото результата: {str(e)}")
-            await message.answer(
+            await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+            sent_message = await message.answer(
                 f"🔧 Диагностика:\n"
                 f"Анализ:\n{analysis}\n"
                 f"Описание проблемы: {description}\n\n"
                 "📋 Рекомендуется очный осмотр для подтверждения.",
                 reply_markup=Keyboards.main_menu_kb()
             )
+            await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
         logger.debug(f"Cleared state for user {message.from_user.id}")
     except Exception as e:
         logger.error(f"Ошибка обработки описания: {str(e)}")
-        await message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
+        await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+        sent_message = await message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
+        await state.update_data(last_message_id=sent_message.message_id)
         await state.clear()
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingPhoto)
-async def invalid_photo_input(message: Message, state: FSMContext):
+async def invalid_photo_input(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает некорректный ввод в состоянии ожидания фото."""
     data = await state.get_data()
     photos = data.get("photos", [])
-    await message.answer(
+    await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+    sent_message = await message.answer(
         f"📸 Пожалуйста, нажмите на скрепку 📎 или перетащите фото.\n"
         f"{get_progress_bar(len(photos))}",
         reply_markup=Keyboards.photo_upload_kb()
     )
+    await state.update_data(last_message_id=sent_message.message_id)
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingChoice)
-async def invalid_choice_input(message: Message, state: FSMContext):
+async def invalid_choice_input(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает некорректный ввод в состоянии выбора."""
-    await message.answer(
+    await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+    sent_message = await message.answer(
         "Пожалуйста, выберите вариант диагностики, используя кнопки.",
         reply_markup=Keyboards.diagnostic_choice_kb()
     )
+    await state.update_data(last_message_id=sent_message.message_id)
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingTextDescription)
-async def invalid_text_description_input(message: Message, state: FSMContext):
+async def invalid_text_description_input(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает некорректный ввод в состоянии ожидания текстового описания."""
-    await message.answer(
+    await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+    sent_message = await message.answer(
         "Пожалуйста, отправьте текстовое описание проблемы.",
         reply_markup=Keyboards.main_menu_kb()
     )
+    await state.update_data(last_message_id=sent_message.message_id)
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingPhotoDescription)
-async def invalid_photo_description_input(message: Message, state: FSMContext):
+async def invalid_photo_description_input(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает некорректный ввод в состоянии ожидания описания после фото."""
-    await message.answer(
+    await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+    sent_message = await message.answer(
         "Пожалуйста, отправьте текстовое описание проблемы.",
         reply_markup=Keyboards.main_menu_kb()
     )
+    await state.update_data(last_message_id=sent_message.message_id)
