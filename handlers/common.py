@@ -104,7 +104,7 @@ async def cmd_admin(message: Message):
                 await message.answer(response, reply_markup=Keyboards.main_menu_kb())
                 return
             try:
-                photo_path = Config.get_photo_path("booking")
+                photo_path = Config.get_photo_path("admin")
                 await message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response,
