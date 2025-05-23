@@ -1,9 +1,10 @@
 from datetime import datetime
-
 import pytz
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from config import Config
 from database import Session, User, Auto, Booking, BookingStatus
 from keyboards.main_kb import Keyboards
@@ -11,6 +12,9 @@ from utils import setup_logger
 
 logger = setup_logger(__name__)
 common_router = Router()
+
+class AdminStates(StatesGroup):
+    AwaitingRejectionReason = State()
 
 # Обработчик команды /start
 @common_router.message(Command("start"))
@@ -20,15 +24,14 @@ async def cmd_start(message: Message):
         await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption=Config.MESSAGES["welcome"],
-            reply_markup=Keyboards.main_menu_kb()  # Обновлено
+            reply_markup=Keyboards.main_menu_kb()
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для /start: {str(e)}")
         await message.answer(
             Config.MESSAGES["welcome"],
-            reply_markup=Keyboards.main_menu_kb()  # Обновлено
+            reply_markup=Keyboards.main_menu_kb()
         )
-
 
 # Обработчик текстового сообщения "📞 Контакты/как проехать"
 @common_router.message(F.text == "📞 Контакты/как проехать")
@@ -38,17 +41,14 @@ async def show_contacts(message: Message):
         await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption=Config.MESSAGES["contacts"],
-            reply_markup=Keyboards.main_menu_kb()  # Обновлено
+            reply_markup=Keyboards.main_menu_kb()
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для контактов: {str(e)}")
         await message.answer(
             Config.MESSAGES["contacts"],
-            reply_markup=Keyboards.main_menu_kb()  # Обновлено
+            reply_markup=Keyboards.main_menu_kb()
         )
-
-
-
 
 @common_router.message(F.text == "О мастере")
 async def cmd_about_master(message: Message):
@@ -56,7 +56,6 @@ async def cmd_about_master(message: Message):
         photo_path = Config.get_photo_path("about_master")
         await message.answer_photo(photo=FSInputFile(photo_path))
         await message.answer(Config.MESSAGES["about_master"], reply_markup=Keyboards.main_menu_kb())
-
     except Exception as e:
         logger.error(f"Ошибка отправки информации о мастере: {str(e)}")
         await message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
@@ -86,13 +85,14 @@ async def cmd_admin(message: Message):
             if not bookings:
                 await message.answer("Нет активных записей.", reply_markup=Keyboards.main_menu_kb())
                 return
-            response = "Активные записи:\n\n"
+            response = "📋 Активные записи:\n\n"
+            keyboard_rows = []
             for booking in bookings:
                 user = session.query(User).get(booking.user_id)
                 auto = session.query(Auto).get(booking.auto_id)
                 status = {
-                    BookingStatus.PENDING: "Ожидает",
-                    BookingStatus.CONFIRMED: "Подтверждено"
+                    BookingStatus.PENDING: "⏳ Ожидает",
+                    BookingStatus.CONFIRMED: "✅ Подтверждено"
                 }[booking.status]
                 description = f"\nОписание: {booking.description}" if booking.description else ""
                 response += (
@@ -100,19 +100,142 @@ async def cmd_admin(message: Message):
                     f"{user.first_name} {user.last_name}, {auto.brand} {auto.license_plate}, "
                     f"{booking.date.strftime('%d.%m.%Y')} {booking.time.strftime('%H:%M')}, {status}{description}\n"
                 )
+                if booking.status == BookingStatus.PENDING:
+                    keyboard_rows.append([
+                        InlineKeyboardButton(text="Подтвердить", callback_data=f"confirm_booking_{booking.id}"),
+                        InlineKeyboardButton(text="Отклонить", callback_data=f"reject_booking_{booking.id}")
+                    ])
+                response += "\n"
+            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows + [[InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_main")]])
             if len(response) > 1024:
-                await message.answer(response, reply_markup=Keyboards.main_menu_kb())
+                logger.warning(f"Подпись слишком длинная ({len(response)} символов), отправляем без фото")
+                await message.answer(response, reply_markup=keyboard)
                 return
             try:
                 photo_path = Config.get_photo_path("admin")
                 await message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response,
-                    reply_markup=Keyboards.main_menu_kb()
+                    reply_markup=keyboard
                 )
             except (FileNotFoundError, ValueError) as e:
                 logger.error(f"Ошибка загрузки фото для админ-панели: {str(e)}")
-                await message.answer(response, reply_markup=Keyboards.main_menu_kb())
+                await message.answer(response, reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Ошибка админ-панели: {str(e)}")
         await message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+
+@common_router.callback_query(F.data.startswith("confirm_booking_"))
+async def confirm_booking(callback: CallbackQuery, bot: Bot):
+    """Подтверждает заявку и уведомляет пользователя."""
+    if str(callback.from_user.id) != Config.ADMIN_ID:
+        await callback.message.answer("Доступ только для мастера.")
+        await callback.answer()
+        return
+    try:
+        booking_id = int(callback.data.replace("confirm_booking_", ""))
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                await callback.message.answer("Заявка не найдена.", reply_markup=Keyboards.main_menu_kb())
+                await callback.answer()
+                return
+            if booking.status != BookingStatus.PENDING:
+                await callback.message.answer("Заявка уже обработана.", reply_markup=Keyboards.main_menu_kb())
+                await callback.answer()
+                return
+            booking.status = BookingStatus.CONFIRMED
+            session.commit()
+            logger.info(f"Booking {booking_id} confirmed by admin {callback.from_user.id}")
+
+            # Уведомление пользователю
+            user = session.query(User).get(booking.user_id)
+            auto = session.query(Auto).get(booking.auto_id)
+            message_text = (
+                f"✅ Ваша заявка #{booking.id} подтверждена!\n"
+                f"Услуга: {booking.service_name}\n"
+                f"Авто: {auto.brand} {auto.license_plate}\n"
+                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                f"Время: {booking.time.strftime('%H:%M')}"
+            )
+            await bot.send_message(user.telegram_id, message_text)
+            await callback.message.answer(f"Заявка #{booking_id} подтверждена.", reply_markup=Keyboards.main_menu_kb())
+            await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка подтверждения заявки {booking_id}: {str(e)}")
+        await callback.message.answer("Ошибка при подтверждении. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+        await callback.answer()
+
+@common_router.callback_query(F.data.startswith("reject_booking_"))
+async def reject_booking(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает причину отклонения заявки."""
+    if str(callback.from_user.id) != Config.ADMIN_ID:
+        await callback.message.answer("Доступ только для мастера.")
+        await callback.answer()
+        return
+    try:
+        booking_id = int(callback.data.replace("reject_booking_", ""))
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                await callback.message.answer("Заявка не найдена.", reply_markup=Keyboards.main_menu_kb())
+                await callback.answer()
+                return
+            if booking.status != BookingStatus.PENDING:
+                await callback.message.answer("Заявка уже обработана.", reply_markup=Keyboards.main_menu_kb())
+                await callback.answer()
+                return
+            await state.update_data(booking_id=booking_id)
+            await callback.message.answer("Введите причину отклонения заявки:")
+            await state.set_state(AdminStates.AwaitingRejectionReason)
+            await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка начала отклонения заявки {booking_id}: {str(e)}")
+        await callback.message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+        await callback.answer()
+
+@common_router.message(AdminStates.AwaitingRejectionReason, F.text)
+async def process_rejection_reason(message: Message, state: FSMContext, bot: Bot):
+    """Обрабатывает причину отклонения и уведомляет пользователя."""
+    reason = message.text.strip()
+    if len(reason) > 500:
+        await message.answer("Причина слишком длинная. Максимум 500 символов. Попробуйте снова.")
+        return
+    try:
+        data = await state.get_data()
+        booking_id = data.get("booking_id")
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                await message.answer("Заявка не найдена.", reply_markup=Keyboards.main_menu_kb())
+                await state.clear()
+                return
+            booking.status = BookingStatus.REJECTED
+            booking.rejection_reason = reason
+            session.commit()
+            logger.info(f"Booking {booking_id} rejected by admin {message.from_user.id} with reason: {reason}")
+
+            # Уведомление пользователю
+            user = session.query(User).get(booking.user_id)
+            auto = session.query(Auto).get(booking.auto_id)
+            message_text = (
+                f"❌ Ваша заявка #{booking.id} отклонена.\n"
+                f"Услуга: {booking.service_name}\n"
+                f"Авто: {auto.brand} {auto.license_plate}\n"
+                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                f"Время: {booking.time.strftime('%H:%M')}\n"
+                f"Причина: {reason}"
+            )
+            await bot.send_message(user.telegram_id, message_text)
+            await message.answer(f"Заявка #{booking_id} отклонена.", reply_markup=Keyboards.main_menu_kb())
+            await state.clear()
+    except Exception as e:
+        logger.error(f"Ошибка отклонения заявки {booking_id}: {str(e)}")
+        await message.answer("Ошибка при отклонении. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+        await state.clear()
+
+@common_router.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery):
+    """Возвращает в главное меню."""
+    await callback.message.answer("Выберите действие:", reply_markup=Keyboards.main_menu_kb())
+    await callback.answer()
