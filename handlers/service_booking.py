@@ -4,7 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
-from config import Config
+from config import get_photo_path, ADMIN_ID, MESSAGES, REMINDER_TIME_MINUTES, SERVICES
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
 from database import init_db, User, Auto, Booking, BookingStatus
@@ -70,7 +70,7 @@ async def notify_master(bot, booking: Booking, user: User, auto: Auto):
             [InlineKeyboardButton(text="Предложить другое время", callback_data=f"reschedule_booking_{booking.id}")],
             [InlineKeyboardButton(text="Отклонить", callback_data=f"reject_booking_{booking.id}")]
         ])
-        await bot.send_message(Config.ADMIN_ID, message, reply_markup=keyboard)
+        await bot.send_message(ADMIN_ID, message, reply_markup=keyboard)
         logger.info(f"Уведомление мастеру отправлено для booking_id={booking.id}")
     except Exception as e:
         logger.error(f"Ошибка отправки уведомления мастеру для booking_id={booking.id}: {str(e)}")
@@ -79,14 +79,14 @@ async def schedule_reminder(bot, booking: Booking, user: User, auto: Auto):
     """Запланировать напоминание мастеру."""
     try:
         booking_datetime = datetime.combine(booking.date, booking.time)
-        reminder_time = booking_datetime - timedelta(minutes=Config.REMINDER_TIME_MINUTES)
+        reminder_time = booking_datetime - timedelta(minutes=REMINDER_TIME_MINUTES)
         now = datetime.now()
         if reminder_time > now:
             delay = (reminder_time - now).total_seconds()
             await asyncio.sleep(delay)
             await bot.send_message(
-                Config.ADMIN_ID,
-                f"Напоминание: Через {Config.REMINDER_TIME_MINUTES} минут запись:\n"
+                ADMIN_ID,
+                f"Напоминание: Через {REMINDER_TIME_MINUTES} минут запись:\n"
                 f"Пользователь: {user.first_name} {user.last_name}\n"
                 f"Авто: {auto.brand}, {auto.year}\n"
                 f"Услуга: {booking.service_name}\n"
@@ -108,7 +108,7 @@ async def start_booking(message: Message, state: FSMContext):
                 autos = session.query(Auto).filter_by(user_id=user.id).all()
                 if autos:
                     try:
-                        photo_path = Config.get_photo_path("booking")
+                        photo_path = get_photo_path("booking")
                         await message.answer_photo(
                             photo=FSInputFile(photo_path),
                             caption="Выберите автомобиль для записи на ТО:",
@@ -151,16 +151,16 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext):
                 return
             await state.update_data(auto_id=auto_id)
             try:
-                photo_path = Config.get_photo_path("booking_menu")
+                photo_path = get_photo_path("booking_menu")
                 await callback.message.answer_photo(
                     photo=FSInputFile(photo_path),
-                    caption=Config.MESSAGES["booking"],
+                    caption=MESSAGES["booking"],
                     reply_markup=Keyboards.services_kb()
                 )
             except (FileNotFoundError, ValueError) as e:
                 logger.error(f"Ошибка загрузки фото для бронирования: {str(e)}")
                 await callback.message.answer(
-                    Config.MESSAGES["booking"],
+                    MESSAGES["booking"],
                     reply_markup=Keyboards.services_kb()
                 )
             await state.set_state(BookingStates.AwaitingService)
@@ -302,10 +302,10 @@ async def add_another_auto(callback: CallbackQuery, state: FSMContext):
 async def continue_booking(callback: CallbackQuery, state: FSMContext):
     """Продолжает процесс бронирования."""
     try:
-        photo_path = Config.get_photo_path("booking_final")
+        photo_path = get_photo_path("booking_final")
         await callback.message.answer_photo(
             photo=FSInputFile(photo_path),
-            caption=Config.MESSAGES["booking"],
+            caption=MESSAGES["booking"],
             reply_markup=Keyboards.services_kb()
         )
         await state.set_state(BookingStates.AwaitingService)
@@ -313,7 +313,7 @@ async def continue_booking(callback: CallbackQuery, state: FSMContext):
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для бронирования: {str(e)}")
         await callback.message.answer(
-            Config.MESSAGES["booking"],
+            MESSAGES["booking"],
             reply_markup=Keyboards.services_kb()
         )
         await state.set_state(BookingStates.AwaitingService)
@@ -323,11 +323,11 @@ async def continue_booking(callback: CallbackQuery, state: FSMContext):
 async def process_service_selection(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает выбор услуги."""
     service_name = callback.data.replace("service_", "")
-    if service_name not in [s["name"] for s in Config.SERVICES]:
+    if service_name not in [s["name"] for s in SERVICES]:
         await callback.message.answer("Некорректная услуга. Выберите снова:", reply_markup=Keyboards.services_kb())
         await callback.answer()
         return
-    service_duration = next(s["duration_minutes"] for s in Config.SERVICES if s["name"] == service_name)
+    service_duration = next(s["duration_minutes"] for s in SERVICES if s["name"] == service_name)
     await state.update_data(service_name=service_name, service_duration=service_duration, week_offset=0)
     await callback.message.answer(
         "Выберите дату для записи:",
@@ -436,14 +436,14 @@ async def schedule_user_reminder(bot, booking: Booking, user: User, auto: Auto):
     """Запланировать напоминание пользователю."""
     try:
         booking_datetime = datetime.combine(booking.date, booking.time)
-        reminder_time = booking_datetime - timedelta(minutes=Config.REMINDER_TIME_MINUTES)
+        reminder_time = booking_datetime - timedelta(minutes=REMINDER_TIME_MINUTES)
         now = datetime.now()
         if reminder_time > now:
             delay = (reminder_time - now).total_seconds()
             await asyncio.sleep(delay)
             await bot.send_message(
                 user.telegram_id,
-                f"Напоминание: Через {Config.REMINDER_TIME_MINUTES} минут ваша запись:\n"
+                f"Напоминание: Через {REMINDER_TIME_MINUTES} минут ваша запись:\n"
                 f"Услуга: {booking.service_name} ({booking.price} ₽)\n"
                 f"Авто: {auto.brand}, {auto.year}\n"
                 f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
@@ -468,7 +468,7 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
                 await state.clear()
                 await callback.answer()
                 return
-            service_price = next(s["price"] for s in Config.SERVICES if s["name"] == data["service_name"])
+            service_price = next(s["price"] for s in SERVICES if s["name"] == data["service_name"])
             booking = Booking(
                 user_id=user.id,
                 auto_id=data["auto_id"],
@@ -500,7 +500,7 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
 @service_booking_router.callback_query(F.data.startswith("confirm_booking_"))
 async def confirm_booking(callback: CallbackQuery, state: FSMContext, bot):
     """Мастер подтверждает запись."""
-    if str(callback.from_user.id) != Config.ADMIN_ID:
+    if str(callback.from_user.id) != ADMIN_ID:
         await callback.answer("Доступ только для мастера.")
         return
     booking_id = int(callback.data.replace("confirm_booking_", ""))
@@ -539,7 +539,7 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext, bot):
 @service_booking_router.callback_query(F.data.startswith("reschedule_booking_"))
 async def reschedule_booking(callback: CallbackQuery, state: FSMContext, bot):
     """Мастер предлагает другое время."""
-    if str(callback.from_user.id) != Config.ADMIN_ID:
+    if str(callback.from_user.id) != ADMIN_ID:
         await callback.answer("Доступ только для мастера.")
         return
     booking_id = int(callback.data.replace("reschedule_booking_", ""))
@@ -561,7 +561,7 @@ async def reschedule_booking(callback: CallbackQuery, state: FSMContext, bot):
 @service_booking_router.callback_query(F.data.startswith("reject_booking_"))
 async def reject_booking(callback: CallbackQuery, state: FSMContext, bot):
     """Мастер отклоняет запись."""
-    if str(callback.from_user.id) != Config.ADMIN_ID:
+    if str(callback.from_user.id) != ADMIN_ID:
         await callback.answer("Доступ только для мастера.")
         return
     booking_id = int(callback.data.replace("reject_booking_", ""))
@@ -574,7 +574,7 @@ async def reject_booking(callback: CallbackQuery, state: FSMContext, bot):
 @service_booking_router.message(BookingStates.AwaitingMasterTime, F.text)
 async def process_master_time(message: Message, state: FSMContext, bot):
     """Обрабатывает ввод нового времени мастером."""
-    if str(message.from_user.id) != Config.ADMIN_ID:
+    if str(message.from_user.id) != ADMIN_ID:
         logger.debug(f"Неавторизованный доступ к process_master_time от user_id={message.from_user.id}")
         return
     data = await state.get_data()
@@ -664,7 +664,7 @@ async def process_master_time(message: Message, state: FSMContext, bot):
 @service_booking_router.message(BookingStates.AwaitingMasterResponse, F.text)
 async def process_master_rejection(message: Message, state: FSMContext, bot):
     """Обрабатывает причину отказа мастера."""
-    if str(message.from_user.id) != Config.ADMIN_ID:
+    if str(message.from_user.id) != ADMIN_ID:
         logger.debug(f"Неавторизованный доступ к process_master_rejection от user_id={message.from_user.id}")
         return
     data = await state.get_data()
@@ -758,7 +758,7 @@ async def process_user_confirmation(callback: CallbackQuery, state: FSMContext, 
             logger.info(f"Запись booking_id={booking_id} подтверждена пользователем: time={booking.time}, status=CONFIRMED")
             try:
                 await bot.send_message(
-                    Config.ADMIN_ID,
+                    ADMIN_ID,
                     f"Пользователь {user.first_name} {user.last_name} подтвердил запись:\n"
                     f"Услуга: {booking.service_name}\n"
                     f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
@@ -812,7 +812,7 @@ async def process_user_rejection(callback: CallbackQuery, state: FSMContext, bot
             logger.info(f"Запись booking_id={booking_id} отклонена пользователем: reason={booking.rejection_reason}")
             try:
                 await bot.send_message(
-                    Config.ADMIN_ID,
+                    ADMIN_ID,
                     f"Пользователь {user.first_name} {user.last_name} отклонил запись:\n"
                     f"Услуга: {booking.service_name}\n"
                     f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"

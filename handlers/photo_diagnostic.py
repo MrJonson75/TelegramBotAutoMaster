@@ -6,7 +6,7 @@ import hashlib
 import os
 from PIL import Image
 from io import BytesIO
-from config import Config
+from config import get_photo_path
 from utils import setup_logger, analyze_text_description, analyze_images
 from keyboards.main_kb import Keyboards
 
@@ -72,7 +72,7 @@ async def start_diagnostic(message: Message, state: FSMContext):
     """Запускает процесс диагностики, предлагая выбор варианта."""
     logger.info(f"Starting photo diagnostic for user {message.from_user.id}")
     try:
-        photo_path = Config.get_photo_path("photo_diagnostic")
+        photo_path = get_photo_path("photo_diagnostic")
         await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption="Выберите способ диагностики:",
@@ -126,7 +126,7 @@ async def handle_text_description(message: Message, state: FSMContext):
         logger.info(f"Processing text description: {description[:50]}... for user {message.from_user.id}")
         analysis = await analyze_text_description(description)
         try:
-            photo_path = Config.get_photo_path("photo_result_diagnostic")
+            photo_path = get_photo_path("photo_result_diagnostic")
             await message.answer_photo(
                 photo=FSInputFile(photo_path),
                 caption=f"🔧 Диагностика:\n"
@@ -261,7 +261,7 @@ async def handle_photo_description(message: Message, state: FSMContext):
             logger.info(f"Processing description without photos: {description[:50]}... for user {message.from_user.id}")
             analysis = await analyze_text_description(description)
         try:
-            photo_path = Config.get_photo_path("photo_result_diagnostic")
+            photo_path = get_photo_path("photo_result_diagnostic")
             await message.answer_photo(
                 photo=FSInputFile(photo_path),
                 caption=f"🔧 Диагностика:\n"

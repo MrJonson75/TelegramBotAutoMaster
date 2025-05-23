@@ -2,12 +2,10 @@ from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, FSInputFile
-from config import Config
+from config import get_photo_path, ADMIN_ID
 from database import Session, User, Auto, Booking, BookingStatus
 from keyboards.main_kb import Keyboards
-from datetime import datetime, timedelta
-import pytz
-import asyncio
+from datetime import datetime
 from utils import setup_logger
 
 logger = setup_logger(__name__)
@@ -41,7 +39,7 @@ async def start_repair_booking(message: Message, state: FSMContext):
                     await state.set_state(RepairBookingStates.AwaitingAuto)
                     return
                 try:
-                    photo_path = Config.get_photo_path("booking_repair")
+                    photo_path = get_photo_path("booking_repair")
                     await message.answer_photo(
                         photo=FSInputFile(photo_path),
                         caption=response,
@@ -59,7 +57,7 @@ async def start_repair_booking(message: Message, state: FSMContext):
                 await state.set_state(RepairBookingStates.AwaitingAuto)
                 return
             try:
-                photo_path = Config.get_photo_path("booking_repair")
+                photo_path = get_photo_path("booking_repair")
                 await message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response,
@@ -96,7 +94,7 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext):
                 await callback.answer()
                 return
             try:
-                photo_path = Config.get_photo_path("booking_repair_sel")
+                photo_path = get_photo_path("booking_repair_sel")
                 await callback.message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response
@@ -212,10 +210,10 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
             )
             if photos:
                 await bot.send_media_group(
-                    chat_id=Config.ADMIN_ID,
+                    chat_id=ADMIN_ID,
                     media=[{"type": "photo", "media": photo_id} for photo_id in photos]
                 )
-            await bot.send_message(Config.ADMIN_ID, message_text)
+            await bot.send_message(ADMIN_ID, message_text)
 
             # Уведомление пользователю
             await callback.message.answer(

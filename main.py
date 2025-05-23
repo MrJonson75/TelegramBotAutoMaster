@@ -2,7 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import Config
+from config import BOT_TOKEN
 from database import init_db
 from handlers import all_handlers
 from utils import setup_logger
@@ -12,7 +12,7 @@ logger = setup_logger(__name__)
 async def main():
     """Точка входа бота."""
     logging.basicConfig(level=logging.INFO)
-    bot = Bot(token=Config.BOT_TOKEN)
+    bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp["bot"] = bot
     Session = init_db()

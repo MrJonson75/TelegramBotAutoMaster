@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
-from config import Config
+from config import get_photo_path, ADMIN_ID
 from database import Session, User, Auto, Booking, BookingStatus
 from keyboards.main_kb import Keyboards
 from datetime import datetime
@@ -59,7 +59,7 @@ async def list_bookings(message: Message):
                 )
                 return
             try:
-                photo_path = Config.get_photo_path("bookings")
+                photo_path = get_photo_path("bookings")
                 await message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response,
@@ -118,7 +118,7 @@ async def cancel_booking(callback: CallbackQuery, bot):
                 f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
                 f"Время: {booking.time.strftime('%H:%M')}"
             )
-            await bot.send_message(Config.ADMIN_ID, message_text)
+            await bot.send_message(ADMIN_ID, message_text)
 
             await callback.answer()
     except Exception as e:
@@ -161,7 +161,7 @@ async def list_history(message: Message):
                 await message.answer(response, reply_markup=Keyboards.main_menu_kb())
                 return
             try:
-                photo_path = Config.get_photo_path("bookings_list")
+                photo_path = get_photo_path("bookings_list")
                 await message.answer_photo(
                     photo=FSInputFile(photo_path),
                     caption=response,

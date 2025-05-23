@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from config import Config
+from config import ADMIN_ID
 from database import Session, User, Auto, Booking, BookingStatus
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
@@ -24,8 +24,8 @@ async def cmd_admin(message_or_callback: Message | CallbackQuery, bot: Bot = Non
     """Отображает активные заявки с пагинацией."""
     is_callback = isinstance(message_or_callback, CallbackQuery)
     message = message_or_callback.message if is_callback else message_or_callback
-    logger.debug(f"Admin access attempt by user {message_or_callback.from_user.id}, expected ADMIN_ID: {Config.ADMIN_ID}")
-    if str(message_or_callback.from_user.id) != Config.ADMIN_ID:
+    logger.debug(f"Admin access attempt by user {message_or_callback.from_user.id}, expected ADMIN_ID: {ADMIN_ID}")
+    if str(message_or_callback.from_user.id) != ADMIN_ID:
         await message.answer("Доступ только для мастера.")
         if is_callback:
             await message_or_callback.answer()
@@ -100,7 +100,7 @@ async def cmd_admin(message_or_callback: Message | CallbackQuery, bot: Bot = Non
 @admin_router.callback_query(F.data.startswith("confirm_booking_"))
 async def confirm_booking(callback: CallbackQuery, bot: Bot):
     """Подтверждает заявку и уведомляет пользователя."""
-    if str(callback.from_user.id) != Config.ADMIN_ID:
+    if str(callback.from_user.id) != ADMIN_ID:
         await callback.message.answer("Доступ только для мастера.")
         await callback.answer()
         return
@@ -142,7 +142,7 @@ async def confirm_booking(callback: CallbackQuery, bot: Bot):
 @admin_router.callback_query(F.data.startswith("reject_booking_"))
 async def reject_booking(callback: CallbackQuery, state: FSMContext):
     """Запрашивает причину отклонения заявки."""
-    if str(callback.from_user.id) != Config.ADMIN_ID:
+    if str(callback.from_user.id) != ADMIN_ID:
         await callback.message.answer("Доступ только для мастера.")
         await callback.answer()
         return
@@ -192,7 +192,7 @@ async def process_rejection_reason(message: Message, state: FSMContext, bot: Bot
             # Уведомление пользователю
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
-            bot_link = getattr(Config, "BOT_LINK", "t.me/YourBotName")
+            bot_link = "t.me/YourBotName"
             message_text = (
                 f"❌ Ваша заявка #{booking.id} отклонена.\n"
                 f"Услуга: {booking.service_name}\n"
@@ -214,7 +214,7 @@ async def process_rejection_reason(message: Message, state: FSMContext, bot: Bot
 @admin_router.callback_query(F.data.startswith("reschedule_booking_"))
 async def reschedule_booking(callback: CallbackQuery, state: FSMContext):
     """Запрашивает новую дату для заявки."""
-    if str(callback.from_user.id) != Config.ADMIN_ID:
+    if str(callback.from_user.id) != ADMIN_ID:
         await callback.message.answer("Доступ только для мастера.")
         await callback.answer()
         return
@@ -292,7 +292,7 @@ async def process_new_time_selection(callback: CallbackQuery, state: FSMContext,
             # Уведомление пользователю
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
-            bot_link = getattr(Config, "BOT_LINK", "t.me/YourBotName")
+            bot_link = "t.me/YourBotName"
             message_text = (
                 f"📅 Время вашей заявки #{booking.id} изменено.\n"
                 f"Услуга: {booking.service_name}\n"

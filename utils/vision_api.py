@@ -1,31 +1,31 @@
 import httpx
 import base64
 import json
-from config import Config
+from config import YANDEX_FOLDER_ID, YANDEX_API_KEY, AI_PROMPT
 from utils import setup_logger
 
 logger = setup_logger(__name__)
 
 async def analyze_images(image_data_list: list, user_comment: str) -> str:
     """Анализирует изображения с помощью Yandex Vision и комментарий с помощью Yandex GPT."""
-    if not Config.YANDEX_API_KEY or not Config.YANDEX_FOLDER_ID:
+    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
         logger.error("YANDEX_API_KEY or YANDEX_FOLDER_ID is missing")
         return await analyze_with_gpt_only(user_comment, "Ошибка: Yandex ключи не настроены.")
 
     # Шаг 1: Извлечение текста с изображений через Yandex Vision
     text_results = []
     auth_header = {
-        "Authorization": f"Api-Key {Config.YANDEX_API_KEY.strip()}",
-        "x-folder-id": Config.YANDEX_FOLDER_ID,
+        "Authorization": f"Api-Key {YANDEX_API_KEY.strip()}",
+        "x-folder-id": YANDEX_FOLDER_ID,
         "Content-Type": "application/json"
     }
-    logger.info(f"Using Yandex API Key: {Config.YANDEX_API_KEY[:4]}...{Config.YANDEX_API_KEY[-4:]}")
+    logger.info(f"Using Yandex API Key: {YANDEX_API_KEY[:4]}...{YANDEX_API_KEY[-4:]}")
     for image_data in image_data_list:
         try:
             logger.info("Processing image with Yandex Vision API")
             image_base64 = base64.b64encode(image_data).decode('utf-8')
             request_body = {
-                "folderId": Config.YANDEX_FOLDER_ID,
+                "folderId": YANDEX_FOLDER_ID,
                 "analyze_specs": [
                     {
                         "content": image_base64,
@@ -78,17 +78,17 @@ async def analyze_images(image_data_list: list, user_comment: str) -> str:
 async def analyze_with_gpt_only(user_comment: str, extracted_text: str) -> str:
     """Анализирует комментарий и извлечённый текст через Yandex GPT."""
     try:
-        if not Config.YANDEX_API_KEY or not Config.YANDEX_FOLDER_ID:
+        if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
             logger.error("YANDEX_API_KEY or YANDEX_FOLDER_ID is missing")
             return f"Распознанное фото: {extracted_text}\nАнализ недоступен: Yandex ключи не настроены."
         logger.info("Sending extracted text and user comment to Yandex GPT")
         auth_header = {
-            "Authorization": f"Api-Key {Config.YANDEX_API_KEY.strip()}",
-            "x-folder-id": Config.YANDEX_FOLDER_ID,
+            "Authorization": f"Api-Key {YANDEX_API_KEY.strip()}",
+            "x-folder-id": YANDEX_FOLDER_ID,
             "Content-Type": "application/json"
         }
         prompt = (
-            f"{Config.AI_PROMPT}\n"
+            f"{AI_PROMPT}\n"
             f"Текст с изображений: {extracted_text}\n"
             f"Комментарий пользователя: {user_comment if user_comment else 'Нет комментария'}"
         )
@@ -97,7 +97,7 @@ async def analyze_with_gpt_only(user_comment: str, extracted_text: str) -> str:
                 "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
                 headers=auth_header,
                 json={
-                    "modelUri": f"gpt://{Config.YANDEX_FOLDER_ID}/yandexgpt",
+                    "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt",
                     "completionOptions": {
                         "stream": False,
                         "temperature": 0.6,

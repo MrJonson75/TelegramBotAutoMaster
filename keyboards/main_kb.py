@@ -1,6 +1,6 @@
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from config import Config
+from config import SERVICES, WORKING_HOURS
 from database import Booking, BookingStatus
 from datetime import datetime, timedelta, time
 from sqlalchemy.orm import Session
@@ -54,7 +54,7 @@ class Keyboards:
     def services_kb() -> InlineKeyboardMarkup:
         """Создаёт инлайн-клавиатуру с перечнем услуг."""
         keyboard = []
-        for service in Config.SERVICES:
+        for service in SERVICES:
             text = f"{service['name']} ({service['price']} ₽)"
             keyboard.append([InlineKeyboardButton(text=text, callback_data=f"service_{service['name']}")])
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -98,7 +98,7 @@ class Keyboards:
         # Собираем 7 рабочих дней
         current_date = start_date
         while len(valid_dates) < 7:
-            if current_date.strftime("%A") not in Config.WORKING_HOURS["weekends"]:
+            if current_date.strftime("%A") not in WORKING_HOURS["weekends"]:
                 valid_dates.append(current_date)
             current_date += timedelta(days=1)
             if (current_date - start_date).days > 30:
@@ -134,10 +134,10 @@ class Keyboards:
     def time_slots_kb(date: datetime, service_duration: int, session: Session,
                       time_offset: int = 0) -> InlineKeyboardMarkup:
         """Создаёт инлайн-клавиатуру с доступными временными слотами (шаг 30 минут, до 6 слотов)."""
-        start_hour = int(Config.WORKING_HOURS["start"].split(":")[0])
-        start_minute = int(Config.WORKING_HOURS["start"].split(":")[1])
-        end_hour = int(Config.WORKING_HOURS["end"].split(":")[0])
-        end_minute = int(Config.WORKING_HOURS["end"].split(":")[1])
+        start_hour = int(WORKING_HOURS["start"].split(":")[0])
+        start_minute = int(WORKING_HOURS["start"].split(":")[1])
+        end_hour = int(WORKING_HOURS["end"].split(":")[0])
+        end_minute = int(WORKING_HOURS["end"].split(":")[1])
         keyboard = []
         valid_slots = []
 
@@ -149,7 +149,7 @@ class Keyboards:
         booked_slots = []
         for b in existing_bookings:
             start_time = b.time
-            duration = Config.SERVICES[[s["name"] for s in Config.SERVICES].index(b.service_name)]["duration_minutes"] if b.service_name != "Ремонт" else 60
+            duration = SERVICES[[s["name"] for s in SERVICES].index(b.service_name)]["duration_minutes"] if b.service_name != "Ремонт" else 60
             end_time = (datetime.combine(date.today(), start_time) + timedelta(minutes=duration)).time()
             booked_slots.append((start_time, end_time))
 

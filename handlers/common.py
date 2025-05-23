@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
-from config import Config
+from config import get_photo_path, MESSAGES
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
 
@@ -12,16 +12,16 @@ common_router = Router()
 async def cmd_start(message: Message):
     """Обработчик команды /start."""
     try:
-        photo_path = Config.get_photo_path("welcome")
+        photo_path = get_photo_path("welcome")
         await message.answer_photo(
             photo=FSInputFile(photo_path),
-            caption=Config.MESSAGES["welcome"],
+            caption=MESSAGES["welcome"],
             reply_markup=Keyboards.main_menu_kb()
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для /start: {str(e)}")
         await message.answer(
-            Config.MESSAGES["welcome"],
+            MESSAGES["welcome"],
             reply_markup=Keyboards.main_menu_kb()
         )
 
@@ -29,16 +29,16 @@ async def cmd_start(message: Message):
 async def show_contacts(message: Message):
     """Обработчик текстового сообщения '📞 Контакты/как проехать'."""
     try:
-        photo_path = Config.get_photo_path("contacts")
+        photo_path = get_photo_path("contacts")
         await message.answer_photo(
             photo=FSInputFile(photo_path),
-            caption=Config.MESSAGES["contacts"],
+            caption=MESSAGES["contacts"],
             reply_markup=Keyboards.main_menu_kb()
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для контактов: {str(e)}")
         await message.answer(
-            Config.MESSAGES["contacts"],
+            MESSAGES["contacts"],
             reply_markup=Keyboards.main_menu_kb()
         )
 
@@ -46,9 +46,9 @@ async def show_contacts(message: Message):
 async def cmd_about_master(message: Message):
     """Обработчик текстового сообщения 'О мастере'."""
     try:
-        photo_path = Config.get_photo_path("about_master")
+        photo_path = get_photo_path("about_master")
         await message.answer_photo(photo=FSInputFile(photo_path))
-        await message.answer(Config.MESSAGES["about_master"], reply_markup=Keyboards.main_menu_kb())
+        await message.answer(MESSAGES["about_master"], reply_markup=Keyboards.main_menu_kb())
     except Exception as e:
         logger.error(f"Ошибка отправки информации о мастере: {str(e)}")
         await message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
