@@ -8,7 +8,7 @@ from PIL import Image
 from io import BytesIO
 from config import Config
 from utils import setup_logger, analyze_text_description, analyze_images
-from keyboards.main_kb import Keyboards  # Обновлённый импорт
+from keyboards.main_kb import Keyboards
 
 photo_diagnostic_router = Router()
 logger = setup_logger(__name__)
@@ -47,7 +47,7 @@ def get_image_hash(image_data: bytes) -> str:
     return hashlib.md5(image_data).hexdigest()
 
 async def get_cached_result(image_hash: str) -> str:
-    """Проверяет кэш в файле (замените на redis, если нужно)."""
+    """Проверяет кэш в файле."""
     cache_file = os.path.join(MEDIA_DIR, "cache.txt")
     try:
         with open(cache_file, "r", encoding="utf-8") as f:
@@ -67,46 +67,53 @@ async def cache_result(image_hash: str, result: str):
     except Exception as e:
         logger.error(f"Ошибка кэширования: {str(e)}")
 
-@photo_diagnostic_router.message(F.text.lower().contains("быстрый ответ - диагностика по фото"))
+@photo_diagnostic_router.message(F.text == "Быстрый ответ - Диагностика по фото")
 async def start_diagnostic(message: Message, state: FSMContext):
     """Запускает процесс диагностики, предлагая выбор варианта."""
-    logger.info("Starting photo diagnostic")
+    logger.info(f"Starting photo diagnostic for user {message.from_user.id}")
     try:
         photo_path = Config.get_photo_path("photo_diagnostic")
         await message.answer_photo(
             photo=FSInputFile(photo_path),
             caption="Выберите способ диагностики:",
-            reply_markup=Keyboards.diagnostic_choice_kb()  # Обновлено
+            reply_markup=Keyboards.diagnostic_choice_kb()
         )
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Ошибка загрузки фото для диагностики: {str(e)}")
         await message.answer(
             "Выберите способ диагностики:",
-            reply_markup=Keyboards.diagnostic_choice_kb()  # Обновлено
+            reply_markup=Keyboards.diagnostic_choice_kb()
         )
     await state.set_state(DiagnosticStates.AwaitingChoice)
+    logger.debug(f"Set state to AwaitingChoice for user {message.from_user.id}")
 
-@photo_diagnostic_router.callback_query(DiagnosticStates.AwaitingChoice, F.data == "text_diagnostic")
-async def choose_text_diagnostic(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор текстового описания."""
-    await callback.message.answer(
-        "Опишите проблему с автомобилем текстом (например, 'стучит подвеска').",
-        reply_markup=Keyboards.main_menu_kb()  # Обновлено
-    )
-    await state.set_state(DiagnosticStates.AwaitingTextDescription)
-    await callback.answer()
-
-@photo_diagnostic_router.callback_query(DiagnosticStates.AwaitingChoice, F.data == "start_photo_diagnostic")
-async def choose_photo_diagnostic(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор загрузки фото."""
-    await callback.message.answer(
-        "📸 Нажмите на скрепку 📎 или перетащите 1–3 фото для диагностики (например, приборная панель, кузов, детали). "
-        "Данные обрабатываются внешним сервисом.",
-        reply_markup=Keyboards.photo_upload_kb()  # Обновлено
-    )
-    await state.set_state(DiagnosticStates.AwaitingPhoto)
-    await state.update_data(photos=[])
-    await callback.answer()
+@photo_diagnostic_router.callback_query(F.data.in_(["text_diagnostic", "start_photo_diagnostic"]))
+async def handle_diagnostic_choice(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает выбор способа диагностики."""
+    logger.debug(f"Received callback data: {callback.data} for user {callback.from_user.id}")
+    try:
+        if callback.data == "text_diagnostic":
+            await callback.message.answer(
+                "Опишите проблему с автомобилем текстом (например, 'стучит подвеска').",
+                reply_markup=Keyboards.main_menu_kb()
+            )
+            await state.set_state(DiagnosticStates.AwaitingTextDescription)
+            logger.debug(f"Set state to AwaitingTextDescription for user {callback.from_user.id}")
+        elif callback.data == "start_photo_diagnostic":
+            await callback.message.answer(
+                "📸 Нажмите на скрепку 📎 или перетащите 1–3 фото для диагностики (например, приборная панель, кузов, детали). "
+                "Данные обрабатываются внешним сервисом.",
+                reply_markup=Keyboards.photo_upload_kb()
+            )
+            await state.set_state(DiagnosticStates.AwaitingPhoto)
+            await state.update_data(photos=[])
+            logger.debug(f"Set state to AwaitingPhoto for user {callback.from_user.id}")
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка обработки callback {callback.data}: {str(e)}")
+        await callback.message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
+        await state.clear()
+        await callback.answer()
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingTextDescription, F.text)
 async def handle_text_description(message: Message, state: FSMContext):
@@ -116,8 +123,7 @@ async def handle_text_description(message: Message, state: FSMContext):
         if len(description) < 5:
             await message.answer("Описание слишком короткое. Пожалуйста, опишите подробнее.", reply_markup=Keyboards.main_menu_kb())
             return
-        logger.info(f"Processing text description: {description[:50]}...")
-        # Анализ текста через Yandex GPT
+        logger.info(f"Processing text description: {description[:50]}... for user {message.from_user.id}")
         analysis = await analyze_text_description(description)
         try:
             photo_path = Config.get_photo_path("photo_result_diagnostic")
@@ -127,7 +133,7 @@ async def handle_text_description(message: Message, state: FSMContext):
                         f"Анализ:\n{analysis}\n"
                         f"Описание проблемы: {description}\n\n"
                         "📋 Рекомендуется очный осмотр для подтверждения.",
-                reply_markup=Keyboards.main_menu_kb()  # Обновлено
+                reply_markup=Keyboards.main_menu_kb()
             )
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"Ошибка отправки фото результата: {str(e)}")
@@ -136,9 +142,10 @@ async def handle_text_description(message: Message, state: FSMContext):
                 f"Анализ:\n{analysis}\n"
                 f"Описание проблемы: {description}\n\n"
                 "📋 Рекомендуется очный осмотр для подтверждения.",
-                reply_markup=Keyboards.main_menu_kb()  # Обновлено
+                reply_markup=Keyboards.main_menu_kb()
             )
         await state.clear()
+        logger.debug(f"Cleared state for user {message.from_user.id}")
     except Exception as e:
         logger.error(f"Ошибка обработки текстового описания: {str(e)}")
         await message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
@@ -169,25 +176,26 @@ async def handle_photo(message: Message, state: FSMContext):
         photos.append(image_data)
         await state.update_data(photos=photos)
 
+        logger.debug(f"Photo uploaded, total: {len(photos)} for user {message.from_user.id}")
         if len(photos) < 3:
             await message.answer(
                 f"Фото загружено.\n"
                 f"{get_progress_bar(len(photos))}\n"
                 f"Нажмите на скрепку 📎 для следующего фото или выберите \"Готово\".",
-                reply_markup=Keyboards.photo_upload_kb()  # Обновлено
+                reply_markup=Keyboards.photo_upload_kb()
             )
         else:
             await message.answer(
                 f"Фото загружено.\n"
                 f"{get_progress_bar(len(photos))}\n"
                 f"Нажмите \"Готово\" для анализа.",
-                reply_markup=Keyboards.photo_upload_kb()  # Обновлено
+                reply_markup=Keyboards.photo_upload_kb()
             )
     except Exception as e:
         logger.error(f"Ошибка обработки фото: {str(e)}")
         await message.answer(
             "Ошибка загрузки фото. Попробуйте снова.",
-            reply_markup=Keyboards.photo_upload_kb()  # Обновлено
+            reply_markup=Keyboards.photo_upload_kb()
         )
         await state.clear()
 
@@ -203,7 +211,6 @@ async def process_photos(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        # Проверяем кэш
         image_hashes = [get_image_hash(photo) for photo in photos]
         cached_results = []
         for image_hash in image_hashes:
@@ -214,14 +221,14 @@ async def process_photos(callback: CallbackQuery, state: FSMContext):
             analysis = "\n".join(cached_results)
             await state.update_data(analysis=analysis)
         else:
-            # Сохраняем фото для анализа после получения комментария
             await state.update_data(photos=photos)
 
         await callback.message.answer(
             "Опишите проблему с автомобилем текстом (например, 'горит чек, код P0420').",
-            reply_markup=Keyboards.main_menu_kb()  # Обновлено
+            reply_markup=Keyboards.main_menu_kb()
         )
         await state.set_state(DiagnosticStates.AwaitingPhotoDescription)
+        logger.debug(f"Set state to AwaitingPhotoDescription for user {callback.from_user.id}")
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка анализа: {str(e)}")
@@ -229,7 +236,6 @@ async def process_photos(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         await callback.answer()
     finally:
-        # Очистка временных файлов
         for i in range(len(photos)):
             file_path = os.path.join(MEDIA_DIR, f"{callback.from_user.id}_{i}.jpg")
             if os.path.exists(file_path):
@@ -246,16 +252,13 @@ async def handle_photo_description(message: Message, state: FSMContext):
         data = await state.get_data()
         photos = data.get("photos", [])
         if photos:
-            logger.info(f"Processing {len(photos)} photos with description: {description[:50]}...")
-            # Анализ фото и комментария через Yandex Vision + GPT
+            logger.info(f"Processing {len(photos)} photos with description: {description[:50]}... for user {message.from_user.id}")
             analysis = await analyze_images(photos, description)
-            # Кэширование результатов
             image_hashes = [get_image_hash(photo) for photo in photos]
             for image_hash in image_hashes:
                 await cache_result(image_hash, analysis)
         else:
-            # Анализ только текста через Yandex GPT
-            logger.info(f"Processing description without photos: {description[:50]}...")
+            logger.info(f"Processing description without photos: {description[:50]}... for user {message.from_user.id}")
             analysis = await analyze_text_description(description)
         try:
             photo_path = Config.get_photo_path("photo_result_diagnostic")
@@ -265,7 +268,7 @@ async def handle_photo_description(message: Message, state: FSMContext):
                         f"Анализ:\n{analysis}\n"
                         f"Описание проблемы: {description}\n\n"
                         "📋 Рекомендуется очный осмотр для подтверждения.",
-                reply_markup=Keyboards.main_menu_kb()  # Обновлено
+                reply_markup=Keyboards.main_menu_kb()
             )
         except (FileNotFoundError, ValueError) as e:
             logger.error(f"Ошибка отправки фото результата: {str(e)}")
@@ -274,9 +277,10 @@ async def handle_photo_description(message: Message, state: FSMContext):
                 f"Анализ:\n{analysis}\n"
                 f"Описание проблемы: {description}\n\n"
                 "📋 Рекомендуется очный осмотр для подтверждения.",
-                reply_markup=Keyboards.main_menu_kb()  # Обновлено
+                reply_markup=Keyboards.main_menu_kb()
             )
         await state.clear()
+        logger.debug(f"Cleared state for user {message.from_user.id}")
     except Exception as e:
         logger.error(f"Ошибка обработки описания: {str(e)}")
         await message.answer("Ошибка. Начните диагностику заново.", reply_markup=Keyboards.main_menu_kb())
@@ -290,7 +294,7 @@ async def invalid_photo_input(message: Message, state: FSMContext):
     await message.answer(
         f"📸 Пожалуйста, нажмите на скрепку 📎 или перетащите фото.\n"
         f"{get_progress_bar(len(photos))}",
-        reply_markup=Keyboards.photo_upload_kb()  # Обновлено
+        reply_markup=Keyboards.photo_upload_kb()
     )
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingChoice)
@@ -298,7 +302,7 @@ async def invalid_choice_input(message: Message, state: FSMContext):
     """Обрабатывает некорректный ввод в состоянии выбора."""
     await message.answer(
         "Пожалуйста, выберите вариант диагностики, используя кнопки.",
-        reply_markup=Keyboards.diagnostic_choice_kb()  # Обновлено
+        reply_markup=Keyboards.diagnostic_choice_kb()
     )
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingTextDescription)
@@ -306,7 +310,7 @@ async def invalid_text_description_input(message: Message, state: FSMContext):
     """Обрабатывает некорректный ввод в состоянии ожидания текстового описания."""
     await message.answer(
         "Пожалуйста, отправьте текстовое описание проблемы.",
-        reply_markup=Keyboards.main_menu_kb()  # Обновлено
+        reply_markup=Keyboards.main_menu_kb()
     )
 
 @photo_diagnostic_router.message(DiagnosticStates.AwaitingPhotoDescription)
@@ -314,5 +318,5 @@ async def invalid_photo_description_input(message: Message, state: FSMContext):
     """Обрабатывает некорректный ввод в состоянии ожидания описания после фото."""
     await message.answer(
         "Пожалуйста, отправьте текстовое описание проблемы.",
-        reply_markup=Keyboards.main_menu_kb()  # Обновлено
+        reply_markup=Keyboards.main_menu_kb()
     )
