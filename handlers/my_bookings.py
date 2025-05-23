@@ -76,6 +76,56 @@ async def list_bookings(message: Message):
         await message.answer("Ошибка при получении записей. Попробуйте снова.",
                              reply_markup=Keyboards.main_menu_kb())
 
+@my_bookings_router.callback_query(F.data.startswith("cancel_booking_"))
+async def cancel_booking(callback: CallbackQuery, bot):
+    """Обрабатывает отмену существующей записи."""
+    logger.info(f"User {callback.from_user.id} requested to cancel booking")
+    try:
+        booking_id = int(callback.data.replace("cancel_booking_", ""))
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                await callback.message.answer("Запись не найдена.", reply_markup=Keyboards.main_menu_kb())
+                await callback.answer()
+                return
+            user = session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first()
+            if booking.user_id != user.id:
+                await callback.message.answer("Вы не можете отменить чужую запись.", reply_markup=Keyboards.main_menu_kb())
+                await callback.answer()
+                return
+            if booking.status not in [BookingStatus.PENDING, BookingStatus.CONFIRMED]:
+                await callback.message.answer("Эта запись уже отменена или завершена.", reply_markup=Keyboards.main_menu_kb())
+                await callback.answer()
+                return
+            booking.status = BookingStatus.REJECTED
+            booking.rejection_reason = "Отменено пользователем"
+            session.commit()
+            logger.info(f"Booking {booking_id} cancelled by user {callback.from_user.id}")
+
+            # Уведомление пользователю
+            auto = session.query(Auto).get(booking.auto_id)
+            await callback.message.answer(
+                f"Заявка #{booking.id} ({booking.service_name}, {auto.brand} {auto.license_plate}) успешно отменена.",
+                reply_markup=Keyboards.main_menu_kb()
+            )
+
+            # Уведомление мастеру
+            message_text = (
+                f"❌ Заявка #{booking.id} отменена пользователем\n"
+                f"Клиент: {user.first_name} {user.last_name}\n"
+                f"Авто: {auto.brand} {auto.license_plate}\n"
+                f"Услуга: {booking.service_name}\n"
+                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
+                f"Время: {booking.time.strftime('%H:%M')}"
+            )
+            await bot.send_message(Config.ADMIN_ID, message_text)
+
+            await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка отмены записи {booking_id}: {str(e)}")
+        await callback.message.answer("Ошибка при отмене записи. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
+        await callback.answer()
+
 @my_bookings_router.message(F.text == "История записей")
 async def list_history(message: Message):
     """Отображает завершённые или отклонённые записи."""
