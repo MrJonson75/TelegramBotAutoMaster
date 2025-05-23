@@ -1,5 +1,5 @@
 from datetime import datetime
-from utils.logger import logger
+from utils import logger
 from aiogram import Bot
 
 async def on_start(bot: Bot):
