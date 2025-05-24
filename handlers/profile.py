@@ -1,22 +1,18 @@
 from datetime import datetime
-
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from pydantic import ValidationError
-
-from config import MESSAGES
 from keyboards.main_kb import Keyboards
 from utils import setup_logger, UserInput, AutoInput
 from database import User, Auto, Booking, BookingStatus, Session
 from .service_utils import send_message, handle_error, get_progress_bar
+from config import get_photo_path
 
 profile_router = Router()
 logger = setup_logger(__name__)
 
-
-# Состояния для личного кабинета
 class ProfileStates(StatesGroup):
     MainMenu = State()
     EditingProfile = State()
@@ -28,10 +24,8 @@ class ProfileStates(StatesGroup):
     AwaitingAutoYear = State()
     AwaitingAutoVin = State()
     AwaitingAutoLicensePlate = State()
-    RegisterFirstName = State()  # Новое состояние для регистрации
-    RegisterLastName = State()
-    RegisterPhone = State()
-
+    RegisterAwaitingPhone = State()
+    RegisterConfirm = State()
 
 PROFILE_PROGRESS_STEPS = {
     str(ProfileStates.AwaitingFirstName): 1,
@@ -41,11 +35,9 @@ PROFILE_PROGRESS_STEPS = {
     str(ProfileStates.AwaitingAutoYear): 2,
     str(ProfileStates.AwaitingAutoVin): 3,
     str(ProfileStates.AwaitingAutoLicensePlate): 4,
-    str(ProfileStates.RegisterFirstName): 1,
-    str(ProfileStates.RegisterLastName): 2,
-    str(ProfileStates.RegisterPhone): 3
+    str(ProfileStates.RegisterAwaitingPhone): 1,
+    str(ProfileStates.RegisterConfirm): 2
 }
-
 
 @profile_router.message(F.text == "Личный кабинет 👤")
 async def enter_profile(message: Message, state: FSMContext, bot: Bot):
@@ -54,119 +46,180 @@ async def enter_profile(message: Message, state: FSMContext, bot: Bot):
     try:
         with Session() as session:
             user = session.query(User).filter_by(telegram_id=str(message.from_user.id)).first()
-            if not user:
-                logger.info(f"Пользователь {message.from_user.id} не зарегистрирован, начало регистрации")
-                sent_message = await send_message(
-                    bot, str(message.chat.id), "text",
-                    (await get_progress_bar(ProfileStates.RegisterFirstName, PROFILE_PROGRESS_STEPS,
-                                            style="emoji")).format(
-                        message="Давайте познакомимся! 👤 Введите ваше <b>имя</b>:"
-                    )
+            if user:
+                response = (
+                    f"<b>Личный кабинет</b> 👤\n"
+                    f"Имя: {user.first_name}\n"
+                    f"Фамилия: {user.last_name or 'Не указано'}\n"
+                    f"Телефон: {user.phone or 'Не указано'}\n"
+                    f"Имя пользователя: {user.username or 'Не указано'}\n"
+                    f"Дата рождения: {user.birth_date or 'Не указано'}\n"
                 )
+                try:
+                    photo_path = get_photo_path("profile")
+                    sent_message = await send_message(
+                        bot, str(message.chat.id), "photo",
+                        response,
+                        photo=photo_path,
+                        reply_markup=Keyboards.profile_menu_kb()
+                    )
+                except FileNotFoundError as e:
+                    logger.warning(f"Не удалось отправить фото профиля для {message.from_user.id}: {str(e)}")
+                    sent_message = await send_message(
+                        bot, str(message.chat.id), "text",
+                        response,
+                        reply_markup=Keyboards.profile_menu_kb()
+                    )
                 if sent_message:
+                    logger.debug(f"Сообщение личного кабинета отправлено для {message.from_user.id}")
                     await state.update_data(last_message_id=sent_message.message_id)
-                    await state.set_state(ProfileStates.RegisterFirstName)
+                    await state.set_state(ProfileStates.MainMenu)
                 return
-            response = (
-                f"<b>Личный кабинет</b> 👤\n"
-                f"Имя: {user.first_name}\n"
-                f"Фамилия: {user.last_name}\n"
-                f"Телефон: {user.phone}\n"
+
+            user_data = {
+                "telegram_id": str(message.from_user.id),
+                "first_name": message.from_user.first_name,
+                "last_name": message.from_user.last_name,
+                "username": message.from_user.username,
+                "phone": None,
+                "birth_date": None
+            }
+            await state.update_data(user_data=user_data)
+
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="Отправить контакт", request_contact=True)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
             )
             sent_message = await send_message(
                 bot, str(message.chat.id), "text",
-                response,
-                reply_markup=Keyboards.profile_menu_kb()
+                "Пожалуйста, отправьте ваш номер телефона, нажав на кнопку ниже: 📞",
+                reply_markup=keyboard
             )
             if sent_message:
-                logger.debug(f"Сообщение личного кабинета отправлено для {message.from_user.id}")
                 await state.update_data(last_message_id=sent_message.message_id)
-                await state.set_state(ProfileStates.MainMenu)
+                await state.set_state(ProfileStates.RegisterAwaitingPhone)
     except Exception as e:
         logger.error(f"Ошибка входа в личный кабинет для {message.from_user.id}: {str(e)}")
         await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка входа в личный кабинет", e)
 
-
-@profile_router.message(ProfileStates.RegisterFirstName, F.text)
-async def process_register_first_name(message: Message, state: FSMContext, bot: Bot):
-    """Обработка имени при регистрации."""
-    from .service_utils import process_user_input
-    await process_user_input(
-        message, state, bot,
-        UserInput.validate_first_name, "first_name",
-        "Введите вашу <b>фамилию</b>: 👤",
-        "Имя слишком короткое или длинное (2–50 символов). Введите снова: 😔",
-        ProfileStates.RegisterLastName,
-        PROFILE_PROGRESS_STEPS
-    )
-
-
-@profile_router.message(ProfileStates.RegisterLastName, F.text)
-async def process_register_last_name(message: Message, state: FSMContext, bot: Bot):
-    """Обработка фамилии при регистрации."""
-    from .service_utils import process_user_input
-    await process_user_input(
-        message, state, bot,
-        UserInput.validate_last_name, "last_name",
-        "Введите ваш номер телефона, начиная с <b>+7</b> (например, <b>+79991234567</b>): 📞",
-        "Фамилия слишком короткая или длинная (2–50 символов). Введите снова: 😔",
-        ProfileStates.RegisterPhone,
-        PROFILE_PROGRESS_STEPS
-    )
-
-
-@profile_router.message(ProfileStates.RegisterPhone, F.text)
+@profile_router.message(ProfileStates.RegisterAwaitingPhone, F.contact)
 async def process_register_phone(message: Message, state: FSMContext, bot: Bot):
-    """Обработка телефона и регистрация пользователя."""
-    logger.info(f"Пользователь {message.from_user.id} ввёл телефон для регистрации")
+    """Обработка номера телефона из контакта."""
+    logger.info(f"Пользователь {message.from_user.id} отправил контакт")
     try:
-        phone = message.text.strip()
-        # Проверяем телефон через validate_phone
+        phone = message.contact.phone_number
+        if not phone.startswith("+"):
+            phone = f"+{phone}"
         UserInput.validate_phone(phone)
         data = await state.get_data()
+        user_data = data["user_data"]
+        user_data["phone"] = phone
+        await state.update_data(user_data=user_data)
+        await show_user_data(message, state, bot)
+    except ValidationError as e:
+        logger.error(f"Ошибка валидации телефона для {message.from_user.id}: {str(e)}")
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Отправить контакт", request_contact=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        sent_message = await send_message(
+            bot, str(message.chat.id), "text",
+            "Некорректный номер телефона. Введите номер, начиная с +7 (например, +79991234567): 📞",
+            reply_markup=keyboard
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+    except Exception as e:
+        logger.error(f"Ошибка обработки телефона для {message.from_user.id}: {str(e)}")
+        await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка обработки телефона", e)
+
+async def show_user_data(message: Message, state: FSMContext, bot: Bot):
+    """Показывает собранные данные и запрашивает подтверждение."""
+    data = await state.get_data()
+    user_data = data["user_data"]
+    response = (
+        "<b>Ваши данные:</b> 👤\n"
+        f"Имя: {user_data['first_name']}\n"
+        f"Фамилия: {user_data['last_name'] or 'Не указано'}\n"
+        f"Телефон: {user_data['phone'] or 'Не указано'}\n"
+        f"Имя пользователя: {user_data['username'] or 'Не указано'}\n"
+        f"Дата рождения: {user_data['birth_date'] or 'Не указано'}\n"
+        "\nДобавить эти данные в базу?"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Добавить ✅", callback_data="confirm_register")],
+        [InlineKeyboardButton(text="Отмена 🚫", callback_data="cancel_register")]
+    ])
+    sent_message = await send_message(
+        bot, str(message.chat.id), "text",
+        response,
+        reply_markup=keyboard
+    )
+    if sent_message:
+        await state.update_data(last_message_id=sent_message.message_id)
+        await state.set_state(ProfileStates.RegisterConfirm)
+
+@profile_router.callback_query(ProfileStates.RegisterConfirm, F.data == "confirm_register")
+async def confirm_register(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Подтверждение регистрации и сохранение данных."""
+    logger.info(f"Пользователь {callback.from_user.id} подтвердил регистрацию")
+    try:
+        data = await state.get_data()
+        user_data = data["user_data"]
         user_input = UserInput(
-            first_name=data["first_name"],
-            last_name=data["last_name"],
-            phone=phone
+            first_name=user_data["first_name"],
+            last_name=user_data["last_name"],
+            phone=user_data["phone"]
         )
         with Session() as session:
             user = User(
+                telegram_id=user_data["telegram_id"],
                 first_name=user_input.first_name,
                 last_name=user_input.last_name,
                 phone=user_input.phone,
-                telegram_id=str(message.from_user.id)
+                username=user_data["username"],
+                birth_date=user_data["birth_date"]
             )
             session.add(user)
             session.commit()
-            logger.info(f"Пользователь {message.from_user.id} зарегистрирован")
+            logger.info(f"Пользователь {callback.from_user.id} зарегистрирован")
             response = (
                 f"<b>Регистрация завершена</b> ✅\n"
                 f"Имя: {user.first_name}\n"
-                f"Фамилия: {user.last_name}\n"
-                f"Телефон: {user.phone}\n"
+                f"Фамилия: {user.last_name or 'Не указано'}\n"
+                f"Телефон: {user.phone or 'Не указано'}\n"
+                f"Имя пользователя: {user.username or 'Не указано'}\n"
+                f"Дата рождения: {user.birth_date or 'Не указано'}\n"
             )
             sent_message = await send_message(
-                bot, str(message.chat.id), "text",
+                bot, str(callback.message.chat.id), "text",
                 response,
                 reply_markup=Keyboards.profile_menu_kb()
             )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
                 await state.set_state(ProfileStates.MainMenu)
-    except ValidationError as e:
-        logger.error(f"Ошибка валидации телефона для {message.from_user.id}: {str(e)}")
-        sent_message = await send_message(
-            bot, str(message.chat.id), "text",
-            (await get_progress_bar(ProfileStates.RegisterPhone, PROFILE_PROGRESS_STEPS, style="emoji")).format(
-                message="Некорректный номер телефона. Введите номер, начиная с +7 (например, +79991234567): 📞"
-            )
-        )
-        if sent_message:
-            await state.update_data(last_message_id=sent_message.message_id)
+            await callback.answer()
     except Exception as e:
-        logger.error(f"Ошибка регистрации для {message.from_user.id}: {str(e)}")
-        await handle_error(message, state, bot, "Ошибка регистрации. Попробуйте снова. 😔", "Ошибка регистрации", e)
+        logger.error(f"Ошибка регистрации для {callback.from_user.id}: {str(e)}")
+        await handle_error(callback, state, bot, "Ошибка регистрации. Попробуйте снова. 😔", "Ошибка регистрации", e)
+        await callback.answer()
 
+@profile_router.callback_query(ProfileStates.RegisterConfirm, F.data == "cancel_register")
+async def cancel_register(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Отмена регистрации."""
+    logger.info(f"Пользователь {callback.from_user.id} отменил регистрацию")
+    sent_message = await send_message(
+        bot, str(callback.message.chat.id), "text",
+        "Регистрация отменена. Вернитесь в 'Личный кабинет' для повторной попытки. 👤",
+        reply_markup=Keyboards.main_menu_kb()
+    )
+    if sent_message:
+        await state.update_data(last_message_id=sent_message.message_id)
+    await state.clear()
+    await callback.answer()
 
 @profile_router.callback_query(ProfileStates.MainMenu, F.data == "edit_profile")
 async def edit_profile(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -183,7 +236,6 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await state.set_state(ProfileStates.AwaitingFirstName)
     await callback.answer()
 
-
 @profile_router.message(ProfileStates.AwaitingFirstName, F.text)
 async def process_first_name(message: Message, state: FSMContext, bot: Bot):
     """Обработка имени."""
@@ -191,26 +243,28 @@ async def process_first_name(message: Message, state: FSMContext, bot: Bot):
     await process_user_input(
         message, state, bot,
         UserInput.validate_first_name, "first_name",
-        "Введите вашу <b>фамилию</b>: 👤",
+        "Введите вашу <b>фамилию</b> (или оставьте пустым, нажав Enter): 👤",
         "Имя слишком короткое или длинное (2–50 символов). Введите снова: 😔",
         ProfileStates.AwaitingLastName,
         PROFILE_PROGRESS_STEPS
     )
 
-
 @profile_router.message(ProfileStates.AwaitingLastName, F.text)
 async def process_last_name(message: Message, state: FSMContext, bot: Bot):
     """Обработка фамилии."""
     from .service_utils import process_user_input
+    def validate_last_name_or_none(value: str):
+        if value.strip() == "":
+            return None
+        return UserInput.validate_last_name(value)
     await process_user_input(
         message, state, bot,
-        UserInput.validate_last_name, "last_name",
-        "Введите ваш номер телефона, начиная с <b>+7</b> (например, <b>+79991234567</b>): 📞",
+        validate_last_name_or_none, "last_name",
+        "Введите ваш номер телефона, начиная с <b>+7</b> (например, <b>+79991234567</b>), или оставьте пустым: 📞",
         "Фамилия слишком короткая или длинная (2–50 символов). Введите снова: 😔",
         ProfileStates.AwaitingPhone,
         PROFILE_PROGRESS_STEPS
     )
-
 
 @profile_router.message(ProfileStates.AwaitingPhone, F.text)
 async def process_phone(message: Message, state: FSMContext, bot: Bot):
@@ -218,13 +272,14 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
     logger.info(f"Пользователь {message.from_user.id} ввёл телефон")
     try:
         phone = message.text.strip()
-        # Проверяем телефон через validate_phone
-        UserInput.validate_phone(phone)
+        validated_phone = None
+        if phone:
+            validated_phone = UserInput.validate_phone(phone)
         data = await state.get_data()
         user_input = UserInput(
-            first_name=data["first_name"],
-            last_name=data["last_name"],
-            phone=phone
+            first_name=data.get("first_name", ""),
+            last_name=data.get("last_name"),
+            phone=validated_phone
         )
         with Session() as session:
             user = session.query(User).filter_by(telegram_id=str(message.from_user.id)).first()
@@ -236,14 +291,26 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
             response = (
                 f"<b>Данные обновлены</b> ✅\n"
                 f"Имя: {user.first_name}\n"
-                f"Фамилия: {user.last_name}\n"
-                f"Телефон: {user.phone}\n"
+                f"Фамилия: {user.last_name or 'Не указано'}\n"
+                f"Телефон: {user.phone or 'Не указано'}\n"
+                f"Имя пользователя: {user.username or 'Не указано'}\n"
+                f"Дата рождения: {user.birth_date or 'Не указано'}\n"
             )
-            sent_message = await send_message(
-                bot, str(message.chat.id), "text",
-                response,
-                reply_markup=Keyboards.profile_menu_kb()
-            )
+            try:
+                photo_path = get_photo_path("profile_edit")
+                sent_message = await send_message(
+                    bot, str(message.chat.id), "photo",
+                    response,
+                    photo=photo_path,
+                    reply_markup=Keyboards.profile_menu_kb()
+                )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото profile_edit для {message.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(message.chat.id), "text",
+                    response,
+                    reply_markup=Keyboards.profile_menu_kb()
+                )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
                 await state.set_state(ProfileStates.MainMenu)
@@ -252,7 +319,7 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
             (await get_progress_bar(ProfileStates.AwaitingPhone, PROFILE_PROGRESS_STEPS, style="emoji")).format(
-                message="Некорректный номер телефона. Введите номер, начиная с +7 (например, +79991234567): 📞"
+                message="Некорректный номер телефона. Введите номер, начиная с +7 (например, +79991234567), или оставьте пустым: 📞"
             )
         )
         if sent_message:
@@ -260,7 +327,6 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
     except Exception as e:
         logger.error(f"Ошибка обновления данных для {message.from_user.id}: {str(e)}")
         await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка обновления данных", e)
-
 
 @profile_router.callback_query(ProfileStates.MainMenu, F.data == "manage_autos")
 async def manage_autos(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -303,7 +369,6 @@ async def manage_autos(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка управления автомобилями", e)
         await callback.answer()
 
-
 @profile_router.callback_query(ProfileStates.ManagingAutos, F.data == "add_auto")
 async def add_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Добавление нового автомобиля."""
@@ -320,7 +385,6 @@ async def add_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await state.set_state(ProfileStates.AwaitingAutoBrand)
     await callback.answer()
 
-
 @profile_router.message(ProfileStates.AwaitingAutoBrand, F.text)
 async def process_auto_brand(message: Message, state: FSMContext, bot: Bot):
     """Обработка марки автомобиля."""
@@ -334,7 +398,6 @@ async def process_auto_brand(message: Message, state: FSMContext, bot: Bot):
         PROFILE_PROGRESS_STEPS,
         reply_markup=Keyboards.cancel_kb()
     )
-
 
 @profile_router.message(ProfileStates.AwaitingAutoYear, F.text)
 async def process_auto_year(message: Message, state: FSMContext, bot: Bot):
@@ -366,7 +429,6 @@ async def process_auto_year(message: Message, state: FSMContext, bot: Bot):
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
 
-
 @profile_router.message(ProfileStates.AwaitingAutoVin, F.text)
 async def process_auto_vin(message: Message, state: FSMContext, bot: Bot):
     """Обработка VIN-номера."""
@@ -380,7 +442,6 @@ async def process_auto_vin(message: Message, state: FSMContext, bot: Bot):
         PROFILE_PROGRESS_STEPS,
         reply_markup=Keyboards.cancel_kb()
     )
-
 
 @profile_router.message(ProfileStates.AwaitingAutoLicensePlate, F.text)
 async def process_auto_license_plate(message: Message, state: FSMContext, bot: Bot):
@@ -437,7 +498,6 @@ async def process_auto_license_plate(message: Message, state: FSMContext, bot: B
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
 
-
 @profile_router.callback_query(ProfileStates.ManagingAutos, F.data.startswith("delete_auto_"))
 async def delete_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Удаление автомобиля."""
@@ -453,7 +513,6 @@ async def delete_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 await callback.answer()
                 return
 
-            # Проверяем наличие активных записей
             active_bookings = session.query(Booking).filter(
                 Booking.auto_id == auto_id,
                 Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED])
@@ -472,13 +531,11 @@ async def delete_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 await callback.answer()
                 return
 
-            # Удаляем неактивные записи (REJECTED, CANCELLED)
             session.query(Booking).filter(
                 Booking.auto_id == auto_id,
                 Booking.status.in_([BookingStatus.REJECTED, BookingStatus.CANCELLED])
             ).delete()
 
-            # Удаляем автомобиль
             session.delete(auto)
             session.commit()
             logger.info(f"Автомобиль {auto_id} удалён для пользователя {callback.from_user.id}")
@@ -517,7 +574,6 @@ async def delete_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
         logger.error(f"Ошибка удаления автомобиля для {callback.from_user.id}: {str(e)}")
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка удаления автомобиля", e)
         await callback.answer()
-
 
 @profile_router.callback_query(ProfileStates.MainMenu, F.data == "my_bookings")
 async def show_bookings(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -570,7 +626,6 @@ async def show_bookings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка получения записей", e)
         await callback.answer()
 
-
 @profile_router.callback_query(ProfileStates.MainMenu, F.data == "booking_history")
 async def show_booking_history(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Показ истории записей."""
@@ -580,7 +635,7 @@ async def show_booking_history(callback: CallbackQuery, state: FSMContext, bot: 
             user = session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first()
             bookings = session.query(Booking).filter(
                 Booking.user_id == user.id,
-                Booking.status.in_([BookingStatus.REJECTED, BookingStatus.CANCELLED])
+                Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED])
             ).all()
             if not bookings:
                 sent_message = await send_message(
@@ -600,7 +655,7 @@ async def show_booking_history(callback: CallbackQuery, state: FSMContext, bot: 
                     BookingStatus.PENDING: "Ожидает подтверждения ⏳",
                     BookingStatus.CONFIRMED: "Подтверждено ✅",
                     BookingStatus.REJECTED: "Отклонено ❌",
-                    BookingStatus.CANCELLED: "Отменено 🚫"  # Добавляем отображение
+                    BookingStatus.CANCELLED: "Отменено 🚫"
                 }
                 response += (
                     f"<b>Запись #{booking.id}</b>\n"
@@ -626,7 +681,6 @@ async def show_booking_history(callback: CallbackQuery, state: FSMContext, bot: 
         logger.error(f"Ошибка получения истории записей для {callback.from_user.id}: {str(e)}")
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка получения истории записей", e)
         await callback.answer()
-
 
 @profile_router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext, bot: Bot):

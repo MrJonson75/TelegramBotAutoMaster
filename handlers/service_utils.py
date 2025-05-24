@@ -1,6 +1,6 @@
 from typing import Tuple, Optional, List
 from aiogram import Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.orm import Session
 from database import User, Auto, Booking, BookingStatus
@@ -11,7 +11,7 @@ from datetime import datetime, time, timedelta
 import asyncio
 import hashlib
 import json
-import os  # Добавляем для проверки существования файла
+import os
 
 logger = setup_logger(__name__)
 
@@ -25,9 +25,9 @@ async def send_message(bot: Bot, chat_id: str, message_type: str, message: str =
             if not photo:
                 logger.error("Параметр 'photo' не предоставлен для отправки фото")
                 return None
-            # Если photo — строка и это путь к файлу, преобразуем в InputFile
+            # Если photo — строка и это путь к файлу, преобразуем в FSInputFile
             if isinstance(photo, str) and os.path.isfile(photo):
-                photo = InputFile(photo)
+                photo = FSInputFile(path=photo)
             return await bot.send_photo(chat_id=chat_id, photo=photo, caption=message, parse_mode="HTML", **kwargs)
         logger.warning(f"Неизвестный тип сообщения: {message_type}")
         return None

@@ -1,37 +1,38 @@
 from pydantic import BaseModel, constr, PositiveInt, validator, ValidationError
 from datetime import datetime
+from typing import Optional
 
 class UserInput(BaseModel):
     first_name: constr(min_length=2, max_length=50)
-    last_name: constr(min_length=2, max_length=50)
-    phone: constr(pattern=r"^\+\d{10,15}$")
+    last_name: Optional[constr(min_length=2, max_length=50)] = None
+    phone: Optional[constr(pattern=r"^\+\d{10,15}$")] = None
 
     @classmethod
     def validate_first_name(cls, value: str):
         """Валидация только имени."""
         try:
-            cls(first_name=value, last_name="dummy", phone="+79999999999")
+            cls(first_name=value, last_name=None, phone=None)
             return value
         except ValidationError as e:
-            raise ValidationError(f"Ошибка валидации имени: {e}")
+            raise e
 
     @classmethod
     def validate_last_name(cls, value: str):
         """Валидация только фамилии."""
         try:
-            cls(first_name="dummy", last_name=value, phone="+79999999999")
+            cls(first_name="dummy", last_name=value, phone=None)
             return value
         except ValidationError as e:
-            raise ValidationError(f"Ошибка валидации фамилии: {e}")
+            raise e
 
     @classmethod
     def validate_phone(cls, value: str):
         """Валидация только телефона."""
         try:
-            cls(first_name="dummy", last_name="dummy", phone=value)
+            cls(first_name="dummy", last_name=None, phone=value)
             return value
         except ValidationError as e:
-            raise ValidationError(f"Ошибка валидации телефона: {e}")
+            raise e
 
 class AutoInput(BaseModel):
     brand: constr(min_length=2, max_length=50)
@@ -59,7 +60,7 @@ class AutoInput(BaseModel):
             cls(brand=value, year=2000, vin="1HGCM82633A004352", license_plate="A123BC")
             return value
         except ValidationError as e:
-            raise ValidationError(f"Ошибка валидации марки: {e}")
+            raise e
 
     @classmethod
     def validate_year(cls, value: int):
@@ -68,7 +69,7 @@ class AutoInput(BaseModel):
             cls(brand="dummy", year=value, vin="1HGCM82633A004352", license_plate="A123BC")
             return value
         except ValidationError as e:
-            raise ValidationError(f"Ошибка валидации года: {e}")
+            raise e
 
     @classmethod
     def validate_vin(cls, value: str):
@@ -77,7 +78,7 @@ class AutoInput(BaseModel):
             cls(brand="dummy", year=2000, vin=value, license_plate="A123BC")
             return value
         except ValidationError as e:
-            raise ValidationError(f"Ошибка валидации VIN: {e}")
+            raise e
 
     @classmethod
     def validate_license_plate(cls, value: str):
@@ -86,4 +87,4 @@ class AutoInput(BaseModel):
             cls(brand="dummy", year=2000, vin="1HGCM82633A004352", license_plate=value)
             return value
         except ValidationError as e:
-            raise ValidationError(f"Ошибка валидации госномера: {e}")
+            raise e
