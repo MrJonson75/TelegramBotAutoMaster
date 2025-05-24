@@ -355,11 +355,21 @@ async def manage_autos(callback: CallbackQuery, state: FSMContext, bot: Bot):
                     f"Год: {auto.year}\n"
                     f"Госномер: {auto.license_plate}\n\n"
                 )
-            sent_message = await send_message(
-                bot, str(callback.message.chat.id), "text",
-                response,
-                reply_markup=Keyboards.auto_management_kb(autos)
-            )
+            try:
+                photo_path = get_photo_path("profile_list_auto")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "photo",
+                    response,
+                    photo=photo_path,
+                    reply_markup=Keyboards.auto_management_kb(autos)
+                )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото profile_list_auto для {callback.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    response,
+                    reply_markup=Keyboards.auto_management_kb(autos)
+                )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
                 await state.set_state(ProfileStates.ManagingAutos)
