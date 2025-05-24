@@ -9,6 +9,7 @@ from config import ADMIN_ID
 from database import Session, User, Auto, Booking, BookingStatus
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
+from handlers.service_utils import send_booking_notification
 
 logger = setup_logger(__name__)
 admin_router = Router()
@@ -164,7 +165,7 @@ async def reject_booking(callback: CallbackQuery, state: FSMContext):
             logger.debug(f"Starting rejection for booking {booking_id}")
             await callback.answer()
     except Exception as e:
-        logger.error(f"Ошибка начала отклонения заявки {booking_id}: {str(e)}")
+        logger.error(f"Ошибка начала отклонения заявки: {str(e)}")
         await callback.message.answer("Ошибка. Попробуйте снова.", reply_markup=Keyboards.main_menu_kb())
         await callback.answer()
 
@@ -192,18 +193,12 @@ async def process_rejection_reason(message: Message, state: FSMContext, bot: Bot
             # Уведомление пользователю
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
-            bot_link = "t.me/YourBotName"
-            message_text = (
-                f"❌ Ваша заявка #{booking.id} отклонена.\n"
-                f"Услуга: {booking.service_name}\n"
-                f"Авто: {auto.brand} {auto.license_plate}\n"
-                f"Дата: {booking.date.strftime('%d.%m.%Y')}\n"
-                f"Время: {booking.time.strftime('%H:%M')}\n"
-                f"Причина: {reason}\n"
-                f"Если вы не согласны, зайдите в 'Мои заявки' и отмените: {bot_link}"
+            success = await send_booking_notification(
+                bot, user.telegram_id, booking, user, auto,
+                f"Ваша запись отклонена. ❌\n<b>Причина:</b> {reason} 📝"
             )
-            logger.debug(f"Sending rejection to user {user.telegram_id} for booking {booking_id}")
-            await bot.send_message(user.telegram_id, message_text)
+            if not success:
+                logger.warning(f"Не удалось уведомить пользователя user_id={user.telegram_id} об отклонении записи booking_id={booking_id}")
             await message.answer(f"Заявка #{booking_id} отклонена.", reply_markup=Keyboards.main_menu_kb())
             await state.clear()
     except Exception as e:
@@ -292,18 +287,15 @@ async def process_new_time_selection(callback: CallbackQuery, state: FSMContext,
             # Уведомление пользователю
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
-            bot_link = "t.me/YourBotName"
-            message_text = (
+            success = await send_booking_notification(
+                bot, user.telegram_id, booking, user, auto,
                 f"📅 Время вашей заявки #{booking.id} изменено.\n"
-                f"Услуга: {booking.service_name}\n"
-                f"Авто: {auto.brand} {auto.license_plate}\n"
                 f"Новая дата: {booking.date.strftime('%d.%m.%Y')}\n"
                 f"Новое время: {booking.time.strftime('%H:%M')}\n"
-                f"Ожидайте подтверждения.\n"
-                f"Если вы не согласны с новым временем, зайдите в 'Мои заявки' и отмените: {bot_link}"
+                f"Ожидайте подтверждения."
             )
-            logger.debug(f"Sending reschedule notification to user {user.telegram_id} for booking {booking_id}")
-            await bot.send_message(user.telegram_id, message_text)
+            if not success:
+                logger.warning(f"Не удалось уведомить пользователя user_id={user.telegram_id} об изменении времени записи booking_id={booking_id}")
             await callback.message.answer(
                 f"Время заявки #{booking_id} изменено на {booking.date.strftime('%d.%m.%Y')} {booking.time.strftime('%H:%M')}.",
                 reply_markup=Keyboards.main_menu_kb()
