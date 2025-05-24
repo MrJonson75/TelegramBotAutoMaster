@@ -28,14 +28,23 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
             user, autos = await check_user_and_autos(session, str(message.from_user.id), bot, message, state, "booking_service")
             if user:
                 if autos:
-                    sent_message = await send_message(
-                        bot, str(message.chat.id), "photo",
-                        (await get_progress_bar(ServiceBookingStates.AwaitingAuto, SERVICE_PROGRESS_STEPS, style="emoji")).format(
-                            message="Выберите автомобиль для записи на ТО: 🚗"
-                        ),
-                        photo_path=get_photo_path("booking"),
-                        reply_markup=Keyboards.auto_selection_kb(autos)
+                    response = (await get_progress_bar(ServiceBookingStates.AwaitingAuto, SERVICE_PROGRESS_STEPS, style="emoji")).format(
+                        message="Выберите автомобиль для записи на ТО: 🚗"
                     )
+                    try:
+                        sent_message = await send_message(
+                            bot, str(message.chat.id), "photo",
+                            response,
+                            photo=get_photo_path("booking"),
+                            reply_markup=Keyboards.auto_selection_kb(autos)
+                        )
+                    except FileNotFoundError as e:
+                        logger.warning(f"Не удалось отправить фото booking для {message.from_user.id}: {str(e)}")
+                        sent_message = await send_message(
+                            bot, str(message.chat.id), "text",
+                            response,
+                            reply_markup=Keyboards.auto_selection_kb(autos)
+                        )
                     if sent_message:
                         await state.update_data(last_message_id=sent_message.message_id)
                         await state.set_state(ServiceBookingStates.AwaitingAuto)
