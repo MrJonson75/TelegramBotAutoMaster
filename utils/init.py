@@ -1,16 +1,18 @@
-from aiogram import Bot
-import logging
+from aiogram.types import Message
+from utils import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
-async def delete_previous_message(bot: Bot, chat_id: int, message_id: int):
-    """Безопасно удаляет предыдущее сообщение, если message_id действителен."""
-    if message_id is None:
-        logger.debug(f"Удаление сообщений пропуску: message_id не для CHAT_ID={chat_id}")
-        return
+async def delete_previous_message(message: Message) -> bool:
+    """Удаляет предыдущее сообщение бота в чате."""
     try:
-        await bot.delete_message(chat_id=chat_id, message_id=message_id)
-        logger.debug(f"Удаленное сообщение {message_id} в чате {chat_id}")
+        # Пытаемся удалить сообщение с ID на единицу меньше текущего
+        await message.bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=message.message_id - 1
+        )
+        logger.debug(f"Удалено предыдущее сообщение в чате {message.chat.id}")
+        return True
     except Exception as e:
-        logger.warning(f"Не удалось удалить сообщение {message_id} в чате {chat_id}: {str(e)}")
-
+        logger.debug(f"Не удалось удалить предыдущее сообщение: {str(e)}")
+        return False

@@ -1,31 +1,41 @@
 import asyncio
-import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import BOT_TOKEN
 from database import init_db
 from handlers import all_handlers
-from utils import setup_logger
+from utils import setup_logger, on_start, on_shutdown
+
 
 logger = setup_logger(__name__)
 
 async def main():
     """Точка входа бота."""
-    logging.basicConfig(level=logging.INFO)
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp["bot"] = bot
-    Session = init_db()
+
+    # Инициализация базы данных
+    try:
+        Session = init_db()
+        dp["session"] = Session
+        logger.info("База данных успешно инициализирована")
+    except Exception as e:
+        logger.error(f"Ошибка инициализации базы данных: {str(e)}")
+        return
 
     # Регистрация всех обработчиков
     dp.include_router(all_handlers)
 
+    # Регистрация функций startup и shutdown
+    dp.startup.register(on_start)
+    dp.shutdown.register(on_shutdown)
 
     try:
-        logger.info("Starting bot")
-        await dp.start_polling(bot, session=Session)
+        logger.info("Запуск бота")
+        await dp.start_polling(bot)
     except Exception as e:
-        logger.error(f"Bot error: {str(e)}")
+        logger.error(f"Ошибка работы бота: {str(e)}")
     finally:
         await bot.session.close()
 

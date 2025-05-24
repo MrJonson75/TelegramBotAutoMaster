@@ -19,11 +19,21 @@ class Keyboards:
         builder.button(text="Запись на ТО")
         builder.button(text="Запись на ремонт")
         builder.button(text="Быстрый ответ - Диагностика по фото")
-        builder.button(text="Мои записи")
-        builder.button(text="История записей")
+        builder.button(text="Личный кабинет 👤")
         builder.button(text="О мастере")
         builder.adjust(2)
         return builder.as_markup(resize_keyboard=True)
+
+    @staticmethod
+    def profile_menu_kb() -> InlineKeyboardMarkup:
+        """Создаёт меню личного кабинета."""
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Редактировать данные 👤", callback_data="edit_profile")],
+            [InlineKeyboardButton(text="Мои автомобили 🚗", callback_data="manage_autos")],
+            [InlineKeyboardButton(text="Мои записи 📜", callback_data="my_bookings")],
+            [InlineKeyboardButton(text="История записей 📜", callback_data="booking_history")],
+            [InlineKeyboardButton(text="Назад ⬅", callback_data="back_to_main")]
+        ])
 
     @staticmethod
     def diagnostic_choice_kb() -> InlineKeyboardMarkup:
@@ -47,7 +57,19 @@ class Keyboards:
         for auto in autos:
             text = f"{auto.brand} {auto.year} {auto.license_plate}"
             keyboard.append([InlineKeyboardButton(text=text, callback_data=f"auto_{auto.id}")])
-        keyboard.append([InlineKeyboardButton(text="Добавить новый автомобиль", callback_data="add_new_auto")])
+        keyboard.append([InlineKeyboardButton(text="Назад ⬅", callback_data="back_to_main")])
+        return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+    @staticmethod
+    def auto_management_kb(autos: list) -> InlineKeyboardMarkup:
+        """Создаёт инлайн-клавиатуру для управления автомобилями."""
+        keyboard = []
+        for auto in autos:
+            text = f"{auto.brand} {auto.year} {auto.license_plate}"
+            keyboard.append([InlineKeyboardButton(text=text, callback_data=f"view_auto_{auto.id}")])
+            keyboard.append([InlineKeyboardButton(text=f"Удалить {auto.brand}", callback_data=f"delete_auto_{auto.id}")])
+        keyboard.append([InlineKeyboardButton(text="Добавить автомобиль 🚗", callback_data="add_auto")])
+        keyboard.append([InlineKeyboardButton(text="Назад ⬅", callback_data="back_to_profile")])
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     @staticmethod
@@ -60,11 +82,11 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     @staticmethod
-    def add_another_auto_kb() -> InlineKeyboardMarkup:
-        """Создаёт инлайн-клавиатуру для добавления ещё одного автомобиля."""
+    def continue_without_photos_kb() -> InlineKeyboardMarkup:
+        """Создаёт клавиатуру для продолжения без фотографий."""
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Добавить ещё авто", callback_data="add_another_auto")],
-            [InlineKeyboardButton(text="Продолжить", callback_data="continue_booking")]
+            [InlineKeyboardButton(text="Продолжить без фото 📷", callback_data="continue_without_photos")],
+            [InlineKeyboardButton(text="Отменить ❌", callback_data="cancel")]
         ])
 
     @staticmethod
@@ -75,7 +97,6 @@ class Keyboards:
         keyboard = []
         valid_dates = []
 
-        # Словарь для локализации дней недели
         day_names = {
             "Monday": "Понедельник",
             "Tuesday": "Вторник",
@@ -95,7 +116,6 @@ class Keyboards:
             "Sunday": "⚪"
         }
 
-        # Собираем 7 рабочих дней
         current_date = start_date
         while len(valid_dates) < 7:
             if current_date.strftime("%A") not in WORKING_HOURS["weekends"]:
@@ -104,7 +124,6 @@ class Keyboards:
             if (current_date - start_date).days > 30:
                 break
 
-        # Группируем по 2–3 даты в строке
         for i in range(0, len(valid_dates), 2):
             row = []
             for date in valid_dates[i:i+2]:
@@ -117,7 +136,6 @@ class Keyboards:
                 row.append(InlineKeyboardButton(text=text, callback_data=callback_data))
             keyboard.append(row)
 
-        # Кнопки навигации
         nav_buttons = []
         if week_offset > 0:
             nav_buttons.append(InlineKeyboardButton(text="⬅ Назад", callback_data=f"prev_week_{week_offset - 1}"))
@@ -125,7 +143,7 @@ class Keyboards:
             nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡", callback_data=f"next_week_{week_offset + 1}"))
         if start_date.date() != today.date():
             nav_buttons.append(InlineKeyboardButton(text="📅 Сегодня", callback_data="today"))
-        nav_buttons.append(InlineKeyboardButton(text="🚫 Отмена", callback_data="cancel_booking"))
+        nav_buttons.append(InlineKeyboardButton(text="🚫 Отмена", callback_data="cancel"))
         keyboard.append(nav_buttons)
 
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -133,7 +151,7 @@ class Keyboards:
     @staticmethod
     def time_slots_kb(date: datetime, service_duration: int, session: Session,
                       time_offset: int = 0) -> InlineKeyboardMarkup:
-        """Создаёт инлайн-клавиатуру с доступными временными слотами (шаг 30 минут, до 6 слотов)."""
+        """Создаёт инлайн-клавиатуру с доступными временными слотами."""
         start_hour = int(WORKING_HOURS["start"].split(":")[0])
         start_minute = int(WORKING_HOURS["start"].split(":")[1])
         end_hour = int(WORKING_HOURS["end"].split(":")[0])
@@ -141,7 +159,6 @@ class Keyboards:
         keyboard = []
         valid_slots = []
 
-        # Получаем существующие записи на выбранную дату
         existing_bookings = session.query(Booking).filter(
             Booking.date == date.date(),
             Booking.status != BookingStatus.REJECTED
@@ -153,7 +170,6 @@ class Keyboards:
             end_time = (datetime.combine(date.today(), start_time) + timedelta(minutes=duration)).time()
             booked_slots.append((start_time, end_time))
 
-        # Собираем доступные слоты с шагом 30 минут
         current_time = datetime.combine(date.today(), time(hour=start_hour, minute=start_minute))
         end_time = datetime.combine(date.today(), time(hour=end_hour, minute=end_minute))
         while current_time < end_time:
@@ -171,11 +187,9 @@ class Keyboards:
                 valid_slots.append(current_time.time())
             current_time += timedelta(minutes=30)
 
-        # Ограничиваем до 6 слотов за раз
         start_index = time_offset * 6
         display_slots = valid_slots[start_index:start_index + 6]
 
-        # Группируем по 2 слота в строке
         for i in range(0, len(display_slots), 2):
             row = []
             for slot in display_slots[i:i+2]:
@@ -184,13 +198,12 @@ class Keyboards:
                 row.append(InlineKeyboardButton(text=text, callback_data=callback_data))
             keyboard.append(row)
 
-        # Кнопки навигации
         nav_buttons = []
         if start_index > 0:
             nav_buttons.append(InlineKeyboardButton(text="⏪ Ранее", callback_data=f"prev_slots_{time_offset - 1}"))
         if start_index + 6 < len(valid_slots):
             nav_buttons.append(InlineKeyboardButton(text="Позже ⏩", callback_data=f"next_slots_{time_offset + 1}"))
-        nav_buttons.append(InlineKeyboardButton(text="🚫 Отмена", callback_data="cancel_booking"))
+        nav_buttons.append(InlineKeyboardButton(text="🚫 Отмена", callback_data="cancel"))
         if nav_buttons:
             keyboard.append(nav_buttons)
 
@@ -221,7 +234,7 @@ class Keyboards:
 
     @staticmethod
     def confirm_reschedule_kb(booking_id: int) -> InlineKeyboardMarkup:
-        """Клавиатура для подтверждения/отклонения нового времени пользователем."""
+        """Клавиатура для подтверждения/отклонения нового времени."""
         keyboard = [
             [InlineKeyboardButton(text="Подтвердить", callback_data=f"confirm_reschedule_{booking_id}")],
             [InlineKeyboardButton(text="Отклонить", callback_data=f"reject_reschedule_{booking_id}")]
