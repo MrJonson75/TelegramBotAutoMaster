@@ -81,14 +81,23 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
                 await callback.answer()
                 return
             await state.update_data(auto_id=auto_id)
-            sent_message = await send_message(
-                bot, str(callback.message.chat.id), "photo",
-                (await get_progress_bar(ServiceBookingStates.AwaitingService, SERVICE_PROGRESS_STEPS, style="emoji")).format(
-                    message=MESSAGES.get("booking", "Выберите <b>услугу</b> для записи на ТО: 🔧")
-                ),
-                photo_path=get_photo_path("booking_menu"),
-                reply_markup=Keyboards.services_kb()
+            response = (await get_progress_bar(ServiceBookingStates.AwaitingService, SERVICE_PROGRESS_STEPS, style="emoji")).format(
+                message=MESSAGES.get("booking", "Выберите <b>услугу</b> для записи на ТО: 🔧")
             )
+            try:
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "photo",
+                    response,
+                    photo=get_photo_path("booking_menu"),
+                    reply_markup=Keyboards.services_kb()
+                )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото booking_menu для {callback.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    response,
+                    reply_markup=Keyboards.services_kb()
+                )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
                 await state.set_state(ServiceBookingStates.AwaitingService)
@@ -282,7 +291,6 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
                 date=data["selected_date"].date(),
                 time=selected_time,
                 status=BookingStatus.PENDING,
-                price=service_price,
                 created_at=datetime.utcnow()
             )
             session.add(booking)
