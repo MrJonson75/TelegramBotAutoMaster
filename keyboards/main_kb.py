@@ -239,3 +239,9 @@ class Keyboards:
         if navigation_rows:
             return InlineKeyboardMarkup(inline_keyboard=[navigation_rows])
         return None
+
+    @staticmethod
+    def cancel_kb():
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Отменить ❌", callback_data="cancel")]
+        ])

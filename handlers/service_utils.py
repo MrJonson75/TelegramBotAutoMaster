@@ -1,31 +1,32 @@
 from aiogram import Bot
-from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, ReplyKeyboardMarkup, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.exceptions import TelegramForbiddenError
-from config import ADMIN_ID, REMINDER_TIME_MINUTES
+from config import ADMIN_ID, REMINDER_TIME_MINUTES, get_photo_path
 from keyboards.main_kb import Keyboards
 from utils import delete_previous_message, setup_logger
 from database import User, Auto, Booking
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session as SQLSession
-from typing import Union, Callable, Optional, Dict
+from typing import Union, Callable, Optional, Dict, Tuple
 from functools import wraps
 import asyncio
 import os
+from .states import RepairBookingStates, REPAIR_PROGRESS_STEPS
 
 logger = setup_logger(__name__)
 
 async def get_progress_bar(
     current_state: State,
     steps_map: Dict[str, int],
-    total_steps: int,
     style: str = "emoji"
 ) -> str:
     """Генерирует текстовый прогресс-бар для отображения этапа процесса."""
     state_str = str(current_state)
     current_step = steps_map.get(state_str, 1)
+    total_steps = max(steps_map.values())  # Динамически вычисляем общее количество шагов
     logger.debug(f"Generating progress bar: state={state_str}, step={current_step}, total_steps={total_steps}")
     if style == "emoji":
         filled = "⬛" * current_step
@@ -46,20 +47,32 @@ async def process_user_input(
     success_message: str,
     error_message: str,
     next_state: State,
-    steps_map: Dict[str, int]
+    steps_map: Dict[str, int],
+    reply_markup: Optional[Union[InlineKeyboardMarkup, ReplyKeyboardMarkup]] = None
 ) -> bool:
     """Обрабатывает пользовательский ввод с валидацией и обновлением состояния."""
     from pydantic import ValidationError
+    if not message.text:
+        logger.warning(f"No text provided for {field_key}")
+        await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
+        current_state = await state.get_state() or next_state
+        sent_message = await send_message(
+            bot, str(message.chat.id), "text",
+            (await get_progress_bar(current_state, steps_map, style="emoji")).format(message=error_message),
+            reply_markup=reply_markup
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+        return False
     try:
         value = message.text.strip()
         validate_fn(value)
         await state.update_data(**{field_key: value})
         await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
-        current_state = await state.get_state()
-        logger.debug(f"Before sending success message: current_state={current_state}, next_state={next_state}")
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
-            (await get_progress_bar(next_state, steps_map, 12, "emoji")).format(message=success_message)
+            (await get_progress_bar(next_state, steps_map, style="emoji")).format(message=success_message),
+            reply_markup=reply_markup
         )
         if not sent_message:
             logger.error(f"Не удалось отправить сообщение для chat_id={message.chat.id}")
@@ -71,11 +84,11 @@ async def process_user_input(
     except ValidationError as e:
         logger.warning(f"Ошибка валидации для {field_key}: {e}, ввод: {value}")
         await delete_previous_message(bot, message.chat.id, (await state.get_data()).get("last_message_id"))
-        current_state = await state.get_state()
-        logger.debug(f"Validation error: current_state={current_state}")
+        current_state = await state.get_state() or next_state
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
-            (await get_progress_bar(current_state, steps_map, 12, "emoji")).format(message=error_message)
+            (await get_progress_bar(current_state, steps_map, style="emoji")).format(message=error_message),
+            reply_markup=reply_markup
         )
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
@@ -87,7 +100,7 @@ async def send_message(
     message_type: str,
     content: str,
     photo_path: Optional[str] = None,
-    reply_markup: Optional[InlineKeyboardMarkup] = None
+    reply_markup: Optional[Union[InlineKeyboardMarkup, ReplyKeyboardMarkup]] = None
 ) -> Optional[Message]:
     """Универсальная функция для отправки сообщений."""
     try:
@@ -114,6 +127,15 @@ async def send_message(
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения в чат chat_id={chat_id}: {str(e)}")
         return None
+
+async def delete_previous_message(bot: Bot, chat_id: int, message_id: Optional[int]) -> None:
+    """Удаляет предыдущее сообщение, если оно существует."""
+    if message_id:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            logger.debug(f"Сообщение message_id={message_id} удалено из чата chat_id={chat_id}")
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение message_id={message_id} в чате chat_id={chat_id}: {str(e)}")
 
 async def handle_error(
     message_or_callback: Union[Message, CallbackQuery],
@@ -154,7 +176,7 @@ async def get_booking_context(
     bot: Bot,
     message_or_callback: Union[Message, CallbackQuery],
     state: FSMContext
-) -> tuple[Optional[Booking], Optional[User], Optional[Auto]]:
+) -> Tuple[Optional[Booking], Optional[User], Optional[Auto]]:
     """Получает данные о записи, пользователе и автомобиле по booking_id."""
     booking = session.query(Booking).get(booking_id)
     if not booking:
@@ -186,9 +208,10 @@ async def send_booking_notification(
     user: User,
     auto: Auto,
     message_text: str,
-    reply_markup: Optional[InlineKeyboardMarkup] = None
+    reply_markup: Optional[Union[InlineKeyboardMarkup, ReplyKeyboardMarkup]] = None,
+    photos: Optional[list] = None
 ) -> bool:
-    """Отправляет уведомление о записи."""
+    """Отправляет уведомление о записи, включая фотографии, если они есть."""
     message = (
         f"{message_text}\n"
         f"<b>Услуга:</b> {booking.service_name} 🔧\n"
@@ -198,8 +221,15 @@ async def send_booking_notification(
     )
     if booking.description:
         message += f"\n<b>Описание:</b> {booking.description} 📝"
-    sent_message = await send_message(bot, chat_id, "text", message, reply_markup=reply_markup)
-    return bool(sent_message)
+    try:
+        if photos:
+            media = [InputMediaPhoto(media=photo_id) for photo_id in photos]
+            await bot.send_media_group(chat_id=chat_id, media=media)
+        sent_message = await send_message(bot, chat_id, "text", message, reply_markup=reply_markup)
+        return bool(sent_message)
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления в чат chat_id={chat_id}: {str(e)}")
+        return False
 
 async def set_user_state(
     bot_id: int,
@@ -226,7 +256,7 @@ async def set_user_state(
         logger.error(f"Ошибка установки состояния для user_id={user_telegram_id}: {str(e)}")
         return False
 
-async def notify_master(bot: Bot, booking: Booking, user: User, auto: Auto) -> bool:
+async def notify_master(bot: Bot, booking: Booking, user: User, auto: Auto, photos: Optional[list] = None) -> bool:
     """Отправляет уведомление мастеру о новой записи."""
     from aiogram.types import InlineKeyboardButton
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -234,31 +264,76 @@ async def notify_master(bot: Bot, booking: Booking, user: User, auto: Auto) -> b
         [InlineKeyboardButton(text="Предложить другое время ⏰", callback_data=f"reschedule_booking_{booking.id}")],
         [InlineKeyboardButton(text="Отклонить ❌", callback_data=f"reject_booking_{booking.id}")]
     ])
-    return await send_booking_notification(
-        bot, ADMIN_ID, booking, user, auto,
-        f"Новая заявка на ТО:\n<b>Пользователь:</b> {user.first_name} {user.last_name} 👤\n<b>Телефон:</b> {user.phone} 📞",
-        reply_markup=keyboard
-    )
+    try:
+        success = await send_booking_notification(
+            bot, ADMIN_ID, booking, user, auto,
+            f"Новая заявка на ремонт:\n<b>Пользователь:</b> {user.first_name} {user.last_name} 👤\n<b>Телефон:</b> {user.phone} 📞",
+            reply_markup=keyboard,
+            photos=photos
+        )
+        if not success:
+            logger.warning(f"Failed to notify master for booking_id={booking.id}: Notification sending failed")
+        return success
+    except Exception as e:
+        logger.error(f"Failed to notify master for booking_id={booking.id}: {str(e)}")
+        return False
+
+async def check_user_and_autos(
+    session: SQLSession,
+    user_id: str,
+    bot: Bot,
+    message_or_callback: Union[Message, CallbackQuery],
+    state: FSMContext,
+    photo_key: str = None
+) -> Tuple[Optional[User], list[Auto]]:
+    """Проверяет существование пользователя и его автомобилей."""
+    user = session.query(User).filter_by(telegram_id=user_id).first()
+    chat_id = message_or_callback.chat.id if isinstance(message_or_callback, Message) else message_or_callback.message.chat.id
+    if not user:
+        await delete_previous_message(bot, chat_id, (await state.get_data()).get("last_message_id"))
+        sent_message = await send_message(
+            bot, str(chat_id), "text",
+            "Вы не зарегистрированы. Начните с записи на ТО. 👤",
+            reply_markup=Keyboards.main_menu_kb()
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+        await state.clear()
+        return None, []
+    autos = session.query(Auto).filter_by(user_id=user.id).all()
+    if not autos:
+        response = "У вас нет зарегистрированных автомобилей. Введите <b>марку</b> автомобиля (например, <b>Toyota</b>): 🚗"
+        await delete_previous_message(bot, chat_id, (await state.get_data()).get("last_message_id"))
+        sent_message = await send_message(
+            bot, str(chat_id), "photo" if photo_key else "text",
+            (await get_progress_bar(RepairBookingStates.AwaitingAutoBrand, REPAIR_PROGRESS_STEPS, style="emoji")).format(message=response),
+            photo_path=get_photo_path(photo_key) if photo_key else None,
+            reply_markup=Keyboards.cancel_kb()
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+        await state.set_state(RepairBookingStates.AwaitingAutoBrand)
+        return user, []
+    return user, autos
 
 class ReminderManager:
-    """Управляет асинхронными напоминаниями."""
     def __init__(self):
         self.tasks: Dict[int, asyncio.Task] = {}
 
-    async def schedule_reminder(self, bot: Bot, booking: Booking, user: User, auto: Auto, is_user: bool = False) -> None:
+    async def schedule_reminder(self, bot: Bot, booking: Booking, user: User, auto: Auto, is_user: bool = False, delay_minutes: int = REMINDER_TIME_MINUTES) -> None:
         """Запланировать напоминание."""
         try:
-            booking_datetime = datetime.combine(booking.date, booking.time)
-            reminder_time = booking_datetime - timedelta(minutes=REMINDER_TIME_MINUTES)
-            now = datetime.utcnow()
+            booking_datetime = datetime.combine(booking.date, booking.time, tzinfo=timezone.utc)
+            reminder_time = booking_datetime - timedelta(minutes=delay_minutes)
+            now = datetime.now(timezone.utc)
             if reminder_time > now:
                 delay = (reminder_time - now).total_seconds()
                 await asyncio.sleep(delay)
                 target_id = user.telegram_id if is_user else ADMIN_ID
                 message = (
-                    f"Напоминание: Через {REMINDER_TIME_MINUTES} минут ваша запись:\n<b>Цена:</b> {booking.price} ₽ 💸"
+                    f"Напоминание: Через {delay_minutes} минут ваша запись:\n<b>Услуга:</b> {booking.service_name} 🔧"
                     if is_user else
-                    f"Напоминание: Через {REMINDER_TIME_MINUTES} минут запись:\n<b>Пользователь:</b> {user.first_name} {user.last_name} 👤"
+                    f"Напоминание: Через {delay_minutes} минут запись:\n<b>Пользователь:</b> {user.first_name} {user.last_name} 👤"
                 )
                 success = await send_booking_notification(bot, target_id, booking, user, auto, message)
                 if success:
@@ -268,9 +343,9 @@ class ReminderManager:
         finally:
             self.tasks.pop(booking.id, None)
 
-    def schedule(self, bot: Bot, booking: Booking, user: User, auto: Auto, is_user: bool = False) -> None:
+    def schedule(self, bot: Bot, booking: Booking, user: User, auto: Auto, is_user: bool = False, delay_minutes: int = REMINDER_TIME_MINUTES) -> None:
         """Создаёт задачу для напоминания."""
-        task = asyncio.create_task(self.schedule_reminder(bot, booking, user, auto, is_user))
+        task = asyncio.create_task(self.schedule_reminder(bot, booking, user, auto, is_user, delay_minutes))
         self.tasks[booking.id] = task
 
     def cancel(self, booking_id: int) -> None:
@@ -282,10 +357,10 @@ class ReminderManager:
 
 reminder_manager = ReminderManager()
 
-async def schedule_reminder(bot: Bot, booking: Booking, user: User, auto: Auto) -> None:
+async def schedule_reminder(bot: Bot, booking: Booking, user: User, auto: Auto, delay_minutes: int = REMINDER_TIME_MINUTES) -> None:
     """Запланировать напоминание мастеру."""
-    reminder_manager.schedule(bot, booking, user, auto, is_user=False)
+    reminder_manager.schedule(bot, booking, user, auto, is_user=False, delay_minutes=delay_minutes)
 
-async def schedule_user_reminder(bot: Bot, booking: Booking, user: User, auto: Auto) -> None:
+async def schedule_user_reminder(bot: Bot, booking: Booking, user: User, auto: Auto, delay_minutes: int = REMINDER_TIME_MINUTES) -> None:
     """Запланировать напоминание пользователю."""
-    reminder_manager.schedule(bot, booking, user, auto, is_user=True)
+    reminder_manager.schedule(bot, booking, user, auto, is_user=True, delay_minutes=delay_minutes)

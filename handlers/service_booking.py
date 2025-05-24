@@ -9,6 +9,7 @@ from database import User, Auto, Booking, BookingStatus, Session, init_db
 from datetime import datetime
 from pydantic import ValidationError
 import asyncio
+import re  # Добавлено для валидации времени
 from .service_utils import (
     get_progress_bar, process_user_input, send_message, handle_error,
     master_only, get_booking_context, send_booking_notification, set_user_state,
@@ -55,7 +56,6 @@ PROGRESS_STEPS = {
     str(BookingStates.AwaitingTime): 12
 }
 
-# Логируем ключи PROGRESS_STEPS при старте
 logger.debug(f"PROGRESS_STEPS keys: {list(PROGRESS_STEPS.keys())}")
 
 @service_booking_router.message(F.text == "Запись на ТО")
@@ -72,7 +72,7 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
                     logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoSelection")
                     sent_message = await send_message(
                         bot, str(message.chat.id), "photo",
-                        (await get_progress_bar(BookingStates.AwaitingAutoSelection, PROGRESS_STEPS, 12, "emoji")).format(
+                        (await get_progress_bar(BookingStates.AwaitingAutoSelection, PROGRESS_STEPS, style="emoji")).format(
                             message="Выберите автомобиль для записи на ТО: 🚗"
                         ),
                         photo_path=get_photo_path("booking"),
@@ -92,7 +92,7 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
                     logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoBrand")
                     sent_message = await send_message(
                         bot, str(message.chat.id), "text",
-                        (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, 12, "emoji")).format(
+                        (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, style="emoji")).format(
                             message="У вас нет зарегистрированных автомобилей. Введите <b>марку</b> автомобиля (например, <b>Toyota</b>): 🚗"
                         )
                     )
@@ -104,7 +104,7 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
                 logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingFirstName")
                 sent_message = await send_message(
                     bot, str(message.chat.id), "text",
-                    (await get_progress_bar(BookingStates.AwaitingFirstName, PROGRESS_STEPS, 12, "emoji")).format(
+                    (await get_progress_bar(BookingStates.AwaitingFirstName, PROGRESS_STEPS, style="emoji")).format(
                         message="Давайте познакомимся! 👤 Введите ваше <b>имя</b>:"
                     )
                 )
@@ -133,7 +133,7 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
             logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingService")
             sent_message = await send_message(
                 bot, str(callback.message.chat.id), "photo",
-                (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, 12, "emoji")).format(
+                (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, style="emoji")).format(
                     message=MESSAGES.get("booking", "Выберите <b>услугу</b> для записи на ТО: 🔧")
                 ),
                 photo_path=get_photo_path("booking_menu"),
@@ -160,7 +160,7 @@ async def add_new_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
     logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoBrand")
     sent_message = await send_message(
         bot, str(callback.message.chat.id), "text",
-        (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, 12, "emoji")).format(
+        (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, style="emoji")).format(
             message="Введите <b>марку</b> автомобиля (например, <b>Toyota</b>): 🚗"
         )
     )
@@ -216,7 +216,7 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
             logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoBrand")
             sent_message = await send_message(
                 bot, str(message.chat.id), "text",
-                (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, 12, "emoji")).format(
+                (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, style="emoji")).format(
                     message="Введите <b>марку</b> автомобиля (например, <b>Toyota</b>): 🚗"
                 )
             )
@@ -237,7 +237,7 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
         logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingPhone")
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingPhone, PROGRESS_STEPS, 12, "emoji")).format(
+            (await get_progress_bar(BookingStates.AwaitingPhone, PROGRESS_STEPS, style="emoji")).format(
                 message="Некорректный номер телефона (10–15 цифр, например, <b>+79991234567</b>). Введите снова: 📞"
             )
         )
@@ -252,7 +252,8 @@ async def process_auto_brand(message: Message, state: FSMContext, bot: Bot):
         "Введите <b>год выпуска</b> автомобиля (например, <b>2020</b>): 📅",
         "Марка слишком короткая или длинная (2–50 символов). Введите снова: 😔",
         BookingStates.AwaitingAutoYear,
-        PROGRESS_STEPS
+        PROGRESS_STEPS,
+        reply_markup=Keyboards.cancel_kb()
     )
 
 @service_booking_router.message(BookingStates.AwaitingAutoYear, F.text)
@@ -264,9 +265,10 @@ async def process_auto_year(message: Message, state: FSMContext, bot: Bot):
         logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoVin")
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingAutoVin, PROGRESS_STEPS, 12, "emoji")).format(
+            (await get_progress_bar(BookingStates.AwaitingAutoVin, PROGRESS_STEPS, style="emoji")).format(
                 message="Введите <b>VIN-номер</b> автомобиля (ровно 17 букв/цифр, например, <b>JTDBT923771012345</b>): 🔢"
-            )
+            ),
+            reply_markup=Keyboards.cancel_kb()
         )
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
@@ -277,9 +279,10 @@ async def process_auto_year(message: Message, state: FSMContext, bot: Bot):
         logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoYear")
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingAutoYear, PROGRESS_STEPS, 12, "emoji")).format(
+            (await get_progress_bar(BookingStates.AwaitingAutoYear, PROGRESS_STEPS, style="emoji")).format(
                 message=f"Некорректный год (1900–{datetime.today().year}). Введите снова: 📅"
-            )
+            ),
+            reply_markup=Keyboards.cancel_kb()
         )
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
@@ -292,7 +295,8 @@ async def process_auto_vin(message: Message, state: FSMContext, bot: Bot):
         "Введите <b>государственный номер</b> автомобиля (например, <b>А123БВ45</b>): 🚘",
         "Некорректный VIN (17 букв/цифр). Введите снова: 😔",
         BookingStates.AwaitingAutoLicensePlate,
-        PROGRESS_STEPS
+        PROGRESS_STEPS,
+        reply_markup=Keyboards.cancel_kb()
     )
 
 @service_booking_router.message(BookingStates.AwaitingAutoLicensePlate, F.text)
@@ -323,7 +327,7 @@ async def process_auto_license_plate(message: Message, state: FSMContext, bot: B
             logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAddAnotherAuto")
             sent_message = await send_message(
                 bot, str(message.chat.id), "text",
-                (await get_progress_bar(BookingStates.AwaitingAddAnotherAuto, PROGRESS_STEPS, 12, "emoji")).format(
+                (await get_progress_bar(BookingStates.AwaitingAddAnotherAuto, PROGRESS_STEPS, style="emoji")).format(
                     message="Автомобиль добавлен! 🎉 Хотите добавить ещё один автомобиль или продолжить?"
                 ),
                 reply_markup=Keyboards.add_another_auto_kb()
@@ -339,12 +343,25 @@ async def process_auto_license_plate(message: Message, state: FSMContext, bot: B
         logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoLicensePlate")
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingAutoLicensePlate, PROGRESS_STEPS, 12, "emoji")).format(
+            (await get_progress_bar(BookingStates.AwaitingAutoLicensePlate, PROGRESS_STEPS, style="emoji")).format(
                 message="Госномер слишком короткий или длинный (5–20 символов, например, <b>А123БВ45</b>). Введите снова: 🚘"
-            )
+            ),
+            reply_markup=Keyboards.cancel_kb()
         )
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
+
+@service_booking_router.callback_query(F.data == "cancel")
+async def cancel_action(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    sent_message = await send_message(
+        bot, str(callback.message.chat.id), "text",
+        "Действие отменено. ❌",
+        reply_markup=Keyboards.main_menu_kb()
+    )
+    if sent_message:
+        await state.update_data(last_message_id=sent_message.message_id)
+    await state.clear()
+    await callback.answer()
 
 @service_booking_router.callback_query(BookingStates.AwaitingAddAnotherAuto, F.data == "add_another_auto")
 async def add_another_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -352,7 +369,7 @@ async def add_another_auto(callback: CallbackQuery, state: FSMContext, bot: Bot)
     logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingAutoBrand")
     sent_message = await send_message(
         bot, str(callback.message.chat.id), "text",
-        (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, 12, "emoji")).format(
+        (await get_progress_bar(BookingStates.AwaitingAutoBrand, PROGRESS_STEPS, style="emoji")).format(
             message="Введите <b>марку</b> автомобиля (например, <b>Toyota</b>): 🚗"
         )
     )
@@ -366,10 +383,19 @@ async def add_another_auto(callback: CallbackQuery, state: FSMContext, bot: Bot)
 async def continue_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Продолжает процесс бронирования."""
     try:
+        data = await state.get_data()
+        if "auto_id" not in data:
+            await handle_error(
+                callback, state, bot,
+                "Ошибка: автомобиль не выбран. Попробуйте снова. 😔",
+                "No auto_id in FSM data", Exception("No auto_id")
+            )
+            await callback.answer()
+            return
         logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingService")
         sent_message = await send_message(
             bot, str(callback.message.chat.id), "photo",
-            (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, 12, "emoji")).format(
+            (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, style="emoji")).format(
                 message=MESSAGES.get("booking", "Выберите <b>услугу</b> для записи на ТО: 🔧")
             ),
             photo_path=get_photo_path("booking_final"),
@@ -398,7 +424,7 @@ async def process_service_selection(callback: CallbackQuery, state: FSMContext, 
         logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingService")
         sent_message = await send_message(
             bot, str(callback.message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, 12, "emoji")).format(
+            (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, style="emoji")).format(
                 message="Некорректная услуга. Выберите снова: 🔧"
             ),
             reply_markup=Keyboards.services_kb()
@@ -412,7 +438,7 @@ async def process_service_selection(callback: CallbackQuery, state: FSMContext, 
     logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingDate")
     sent_message = await send_message(
         bot, str(callback.message.chat.id), "text",
-        (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, 12, "emoji")).format(
+        (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, style="emoji")).format(
             message="Выберите <b>дату</b> для записи: 📅"
         ),
         reply_markup=Keyboards.calendar_kb()
@@ -472,7 +498,7 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext, bot
                 logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingDate")
                 sent_message = await send_message(
                     bot, str(callback.message.chat.id), "text",
-                    (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, 12, "emoji")).format(
+                    (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, style="emoji")).format(
                         message="Нет доступных слотов на эту дату. Выберите другую дату: 📅"
                     ),
                     reply_markup=Keyboards.calendar_kb(selected_date, week_offset)
@@ -485,7 +511,7 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext, bot
             logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingTime")
             sent_message = await send_message(
                 bot, str(callback.message.chat.id), "text",
-                (await get_progress_bar(BookingStates.AwaitingTime, PROGRESS_STEPS, 12, "emoji")).format(
+                (await get_progress_bar(BookingStates.AwaitingTime, PROGRESS_STEPS, style="emoji")).format(
                     message="Выберите <b>время</b> для записи: ⏰"
                 ),
                 reply_markup=time_slots
@@ -501,7 +527,7 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext, bot
         logger.debug(f"Перед вызовом get_progress_bar: state=BookingStates.AwaitingDate")
         sent_message = await send_message(
             bot, str(callback.message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, 12, "emoji")).format(
+            (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, style="emoji")).format(
                 message="Некорректная дата. Выберите снова: 📅"
             ),
             reply_markup=Keyboards.calendar_kb(week_offset=week_offset)
@@ -574,9 +600,9 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
                 logger.warning(f"Не удалось уведомить мастера о записи booking_id={booking.id}")
             asyncio.create_task(schedule_reminder(bot, booking, user, auto))
             asyncio.create_task(schedule_user_reminder(bot, booking, user, auto))
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Отменить запись ❌", callback_data=f"cancel_booking_{booking.id}")]
-            ])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Отменить запись ❌", callback_data=f"cancel_booking_{booking.id}")
+            ]])
             sent_message = await send_message(
                 bot, str(callback.message.chat.id), "text",
                 f"Ваша заявка отправлена мастеру. Ожидайте подтверждения. ⏳\n"
@@ -644,22 +670,6 @@ async def reschedule_booking(callback: CallbackQuery, state: FSMContext, bot: Bo
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка переноса записи booking_id={booking_id}", e)
         await callback.answer()
 
-@service_booking_router.callback_query(F.data.startswith("reject_booking_"))
-@master_only
-async def reject_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Мастер отклоняет запись."""
-    booking_id = int(callback.data.replace("reject_booking_", ""))
-    await state.update_data(booking_id=booking_id, master_action="reject")
-    sent_message = await send_message(
-        bot, str(callback.message.chat.id), "text",
-        "Укажите <b>причину</b> отказа: 📝"
-    )
-    if sent_message:
-        await state.update_data(last_message_id=sent_message.message_id)
-        await state.set_state(BookingStates.AwaitingMasterResponse)
-        logger.info(f"Мастер запросил причину отказа для записи booking_id={booking_id}")
-    await callback.answer()
-
 @service_booking_router.message(BookingStates.AwaitingMasterTime, F.text)
 @master_only
 async def process_master_time(message: Message, state: FSMContext, bot: Bot):
@@ -673,12 +683,23 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
         )
         return
     booking_id = data.get("booking_id")
+    time_str = message.text.strip()
+    # Проверка формата времени (например, "HH:MM")
+    if not re.match(r"^(?:[01]\d|2[0-3]):[0-5]\d$", time_str):
+        logger.warning(f"Некорректный формат времени '{time_str}' для записи booking_id={booking_id}")
+        sent_message = await send_message(
+            bot, str(message.chat.id), "text",
+            "Некорректный формат времени. Введите снова (например, <b>14:30</b>): ⏰"
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+        return
     try:
         with Session() as session:
             booking, user, auto = await get_booking_context(session, booking_id, bot, message, state)
             if not booking:
                 return
-            new_time = datetime.strptime(message.text, "%H:%M").time()
+            new_time = datetime.strptime(time_str, "%H:%M").time()
             booking.proposed_time = new_time
             booking.status = BookingStatus.PENDING
             session.commit()
@@ -706,14 +727,6 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
                 if sent_message:
                     await state.update_data(last_message_id=sent_message.message_id)
             await state.clear()
-    except ValueError:
-        logger.warning(f"Некорректный формат времени '{message.text}' для записи booking_id={booking_id}")
-        sent_message = await send_message(
-            bot, str(message.chat.id), "text",
-            "Некорректный формат времени. Введите снова (например, <b>14:30</b>): ⏰"
-        )
-        if sent_message:
-            await state.update_data(last_message_id=sent_message.message_id)
     except Exception as e:
         await handle_error(
             message, state, bot,
