@@ -4,7 +4,7 @@ from datetime import datetime
 class UserInput(BaseModel):
     first_name: constr(min_length=2, max_length=50)
     last_name: constr(min_length=2, max_length=50)
-    phone: constr(pattern=r"^\+?\d{10,15}$")
+    phone: constr(pattern=r"^\+\d{10,15}$")
 
     @classmethod
     def validate_first_name(cls, value: str):

@@ -1,47 +1,23 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from config import MESSAGES, SERVICES, get_photo_path, ADMIN_ID
 from keyboards.main_kb import Keyboards
-from utils import setup_logger, UserInput
-from database import User, Auto, Booking, BookingStatus, Session, init_db
+from utils import setup_logger
+from database import User, Auto, Booking, BookingStatus, Session
 from datetime import datetime
-from pydantic import ValidationError
 import asyncio
 import re
+from .states import ServiceBookingStates, SERVICE_PROGRESS_STEPS
 from .service_utils import (
-    get_progress_bar, send_message, handle_error,
+    get_progress_bar, send_message, handle_error, check_user_and_autos,
     master_only, get_booking_context, send_booking_notification, set_user_state,
-    notify_master, schedule_reminder, schedule_user_reminder, reminder_manager
+    notify_master, schedule_reminder, schedule_user_reminder
 )
-
-init_db()
+from .reminder_manager import reminder_manager
 
 service_booking_router = Router()
 logger = setup_logger(__name__)
-
-class BookingStates(StatesGroup):
-    AwaitingAutoSelection = State()
-    AwaitingService = State()
-    AwaitingFirstName = State()
-    AwaitingLastName = State()
-    AwaitingPhone = State()
-    AwaitingDate = State()
-    AwaitingTime = State()
-    AwaitingMasterResponse = State()
-    AwaitingMasterTime = State()
-    AwaitingUserConfirmation = State()
-
-PROGRESS_STEPS = {
-    str(BookingStates.AwaitingFirstName): 1,
-    str(BookingStates.AwaitingLastName): 2,
-    str(BookingStates.AwaitingPhone): 3,
-    str(BookingStates.AwaitingAutoSelection): 4,
-    str(BookingStates.AwaitingService): 5,
-    str(BookingStates.AwaitingDate): 6,
-    str(BookingStates.AwaitingTime): 7
-}
 
 @service_booking_router.message(F.text == "Запись на ТО")
 async def start_booking(message: Message, state: FSMContext, bot: Bot):
@@ -49,13 +25,12 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
     logger.info(f"Пользователь {message.from_user.id} начал запись")
     try:
         with Session() as session:
-            user = session.query(User).filter_by(telegram_id=str(message.from_user.id)).first()
+            user, autos = await check_user_and_autos(session, str(message.from_user.id), bot, message, state, "booking_service")
             if user:
-                autos = session.query(Auto).filter_by(user_id=user.id).all()
                 if autos:
                     sent_message = await send_message(
                         bot, str(message.chat.id), "photo",
-                        (await get_progress_bar(BookingStates.AwaitingAutoSelection, PROGRESS_STEPS, style="emoji")).format(
+                        (await get_progress_bar(ServiceBookingStates.AwaitingAuto, SERVICE_PROGRESS_STEPS, style="emoji")).format(
                             message="Выберите автомобиль для записи на ТО: 🚗"
                         ),
                         photo_path=get_photo_path("booking"),
@@ -63,7 +38,7 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
                     )
                     if sent_message:
                         await state.update_data(last_message_id=sent_message.message_id)
-                        await state.set_state(BookingStates.AwaitingAutoSelection)
+                        await state.set_state(ServiceBookingStates.AwaitingAuto)
                     else:
                         await handle_error(
                             message, state, bot,
@@ -79,20 +54,10 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
                     if sent_message:
                         await state.update_data(last_message_id=sent_message.message_id)
                     await state.clear()
-            else:
-                sent_message = await send_message(
-                    bot, str(message.chat.id), "text",
-                    (await get_progress_bar(BookingStates.AwaitingFirstName, PROGRESS_STEPS, style="emoji")).format(
-                        message="Давайте познакомимся! 👤 Введите ваше <b>имя</b>:"
-                    )
-                )
-                if sent_message:
-                    await state.update_data(last_message_id=sent_message.message_id)
-                    await state.set_state(BookingStates.AwaitingFirstName)
     except Exception as e:
         await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка проверки пользователя", e)
 
-@service_booking_router.callback_query(BookingStates.AwaitingAutoSelection, F.data.startswith("auto_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingAuto, F.data.startswith("auto_"))
 async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Обрабатывает выбор автомобиля."""
     auto_id = int(callback.data.replace("auto_", ""))
@@ -109,7 +74,7 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
             await state.update_data(auto_id=auto_id)
             sent_message = await send_message(
                 bot, str(callback.message.chat.id), "photo",
-                (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, style="emoji")).format(
+                (await get_progress_bar(ServiceBookingStates.AwaitingService, SERVICE_PROGRESS_STEPS, style="emoji")).format(
                     message=MESSAGES.get("booking", "Выберите <b>услугу</b> для записи на ТО: 🔧")
                 ),
                 photo_path=get_photo_path("booking_menu"),
@@ -117,7 +82,7 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
             )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
-                await state.set_state(BookingStates.AwaitingService)
+                await state.set_state(ServiceBookingStates.AwaitingService)
             else:
                 await handle_error(
                     callback, state, bot,
@@ -129,74 +94,9 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка выбора автомобиля", e)
         await callback.answer()
 
-@service_booking_router.message(BookingStates.AwaitingFirstName, F.text)
-async def process_first_name(message: Message, state: FSMContext, bot: Bot):
-    from .service_utils import process_user_input
-    await process_user_input(
-        message, state, bot,
-        UserInput.validate_first_name, "first_name",
-        "Введите вашу <b>фамилию</b>: 👤",
-        "Имя слишком короткое или длинное (2–50 символов). Введите снова: 😔",
-        BookingStates.AwaitingLastName,
-        PROGRESS_STEPS
-    )
-
-@service_booking_router.message(BookingStates.AwaitingLastName, F.text)
-async def process_last_name(message: Message, state: FSMContext, bot: Bot):
-    from .service_utils import process_user_input
-    await process_user_input(
-        message, state, bot,
-        UserInput.validate_last_name, "last_name",
-        "Введите ваш номер телефона, начиная с <b>+7</b> (например, <b>+79991234567</b>, 10–15 цифр): 📞",
-        "Фамилия слишком короткая или длинная (2–50 символов). Введите снова: 😔",
-        BookingStates.AwaitingPhone,
-        PROGRESS_STEPS
-    )
-
-@service_booking_router.message(BookingStates.AwaitingPhone, F.text)
-async def process_phone(message: Message, state: FSMContext, bot: Bot):
-    try:
-        phone = message.text.strip()
-        data = await state.get_data()
-        user_input = UserInput(
-            first_name=data["first_name"],
-            last_name=data["last_name"],
-            phone=phone
-        )
-        try:
-            with Session() as session:
-                user = User(
-                    first_name=user_input.first_name,
-                    last_name=user_input.last_name,
-                    phone=user_input.phone,
-                    telegram_id=str(message.from_user.id)
-                )
-                session.add(user)
-                session.commit()
-                logger.info(f"Пользователь {message.from_user.id} зарегистрирован")
-                sent_message = await send_message(
-                    bot, str(message.chat.id), "text",
-                    "Вы зарегистрированы! Добавьте автомобиль в личном кабинете перед записью. 🚗",
-                    reply_markup=Keyboards.main_menu_kb()
-                )
-                if sent_message:
-                    await state.update_data(last_message_id=sent_message.message_id)
-                await state.clear()
-        except Exception as e:
-            await handle_error(message, state, bot, "Ошибка регистрации. Попробуйте снова. 😔", "Ошибка регистрации пользователя", e)
-    except ValidationError as e:
-        logger.warning(f"Ошибка валидации номера телефона: {e}, ввод: {phone}")
-        sent_message = await send_message(
-            bot, str(message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingPhone, PROGRESS_STEPS, style="emoji")).format(
-                message="Некорректный номер телефона (10–15 цифр, например, <b>+79991234567</b>). Введите снова: 📞"
-            )
-        )
-        if sent_message:
-            await state.update_data(last_message_id=sent_message.message_id)
-
 @service_booking_router.callback_query(F.data == "cancel")
 async def cancel_action(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Отменяет процесс бронирования."""
     sent_message = await send_message(
         bot, str(callback.message.chat.id), "text",
         "Действие отменено. ❌",
@@ -207,14 +107,14 @@ async def cancel_action(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await state.clear()
     await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingService, F.data.startswith("service_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingService, F.data.startswith("service_"))
 async def process_service_selection(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Обрабатывает выбор услуги."""
     service_name = callback.data.replace("service_", "")
     if service_name not in [s["name"] for s in SERVICES]:
         sent_message = await send_message(
             bot, str(callback.message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingService, PROGRESS_STEPS, style="emoji")).format(
+            (await get_progress_bar(ServiceBookingStates.AwaitingService, SERVICE_PROGRESS_STEPS, style="emoji")).format(
                 message="Некорректная услуга. Выберите снова: 🔧"
             ),
             reply_markup=Keyboards.services_kb()
@@ -227,17 +127,17 @@ async def process_service_selection(callback: CallbackQuery, state: FSMContext, 
     await state.update_data(service_name=service_name, service_duration=service_duration, week_offset=0)
     sent_message = await send_message(
         bot, str(callback.message.chat.id), "text",
-        (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, style="emoji")).format(
+        (await get_progress_bar(ServiceBookingStates.AwaitingDate, SERVICE_PROGRESS_STEPS, style="emoji")).format(
             message="Выберите <b>дату</b> для записи: 📅"
         ),
         reply_markup=Keyboards.calendar_kb()
     )
     if sent_message:
         await state.update_data(last_message_id=sent_message.message_id)
-        await state.set_state(BookingStates.AwaitingDate)
+        await state.set_state(ServiceBookingStates.AwaitingDate)
     await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingDate, F.data.startswith("prev_week_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingDate, F.data.startswith("prev_week_"))
 async def prev_week_selection(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает переход на предыдущую неделю."""
     week_offset = int(callback.data.replace("prev_week_", ""))
@@ -249,7 +149,7 @@ async def prev_week_selection(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingDate, F.data.startswith("next_week_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingDate, F.data.startswith("next_week_"))
 async def next_week_selection(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает переход на следующую неделю."""
     week_offset = int(callback.data.replace("next_week_", ""))
@@ -261,7 +161,7 @@ async def next_week_selection(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingDate, F.data == "today")
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingDate, F.data == "today")
 async def today_selection(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает выбор текущего дня."""
     await state.update_data(week_offset=0)
@@ -272,7 +172,7 @@ async def today_selection(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingDate, F.data.startswith("date_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingDate, F.data.startswith("date_"))
 async def process_date_selection(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Обрабатывает выбор даты."""
     date_str = callback.data.replace("date_", "")
@@ -285,7 +185,7 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext, bot
             if not time_slots.inline_keyboard:
                 sent_message = await send_message(
                     bot, str(callback.message.chat.id), "text",
-                    (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, style="emoji")).format(
+                    (await get_progress_bar(ServiceBookingStates.AwaitingDate, SERVICE_PROGRESS_STEPS, style="emoji")).format(
                         message="Нет доступных слотов на эту дату. Выберите другую дату: 📅"
                     ),
                     reply_markup=Keyboards.calendar_kb(selected_date, week_offset)
@@ -297,21 +197,21 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext, bot
             await state.update_data(selected_date=selected_date, time_offset=0)
             sent_message = await send_message(
                 bot, str(callback.message.chat.id), "text",
-                (await get_progress_bar(BookingStates.AwaitingTime, PROGRESS_STEPS, style="emoji")).format(
+                (await get_progress_bar(ServiceBookingStates.AwaitingTime, SERVICE_PROGRESS_STEPS, style="emoji")).format(
                     message="Выберите <b>время</b> для записи: ⏰"
                 ),
                 reply_markup=time_slots
             )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
-                await state.set_state(BookingStates.AwaitingTime)
+                await state.set_state(ServiceBookingStates.AwaitingTime)
             await callback.answer()
     except ValueError:
         data = await state.get_data()
         week_offset = data.get("week_offset", 0)
         sent_message = await send_message(
             bot, str(callback.message.chat.id), "text",
-            (await get_progress_bar(BookingStates.AwaitingDate, PROGRESS_STEPS, style="emoji")).format(
+            (await get_progress_bar(ServiceBookingStates.AwaitingDate, SERVICE_PROGRESS_STEPS, style="emoji")).format(
                 message="Некорректная дата. Выберите снова: 📅"
             ),
             reply_markup=Keyboards.calendar_kb(week_offset=week_offset)
@@ -320,7 +220,7 @@ async def process_date_selection(callback: CallbackQuery, state: FSMContext, bot
             await state.update_data(last_message_id=sent_message.message_id)
         await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingTime, F.data.startswith("prev_slots_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingTime, F.data.startswith("prev_slots_"))
 async def prev_slots_selection(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает переход к предыдущим временным слотам."""
     time_offset = int(callback.data.replace("prev_slots_", ""))
@@ -334,7 +234,7 @@ async def prev_slots_selection(callback: CallbackQuery, state: FSMContext):
         )
     await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingTime, F.data.startswith("next_slots_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingTime, F.data.startswith("next_slots_"))
 async def next_slots_selection(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает переход к следующим временным слотам."""
     time_offset = int(callback.data.replace("next_slots_", ""))
@@ -348,7 +248,7 @@ async def next_slots_selection(callback: CallbackQuery, state: FSMContext):
         )
     await callback.answer()
 
-@service_booking_router.callback_query(BookingStates.AwaitingTime, F.data.startswith("time_"))
+@service_booking_router.callback_query(ServiceBookingStates.AwaitingTime, F.data.startswith("time_"))
 async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Обрабатывает выбор времени."""
     time_str = callback.data.replace("time_", "")
@@ -447,14 +347,14 @@ async def reschedule_booking(callback: CallbackQuery, state: FSMContext, bot: Bo
         )
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
-            await state.set_state(BookingStates.AwaitingMasterTime)
+            await state.set_state(ServiceBookingStates.AwaitingMasterTime)
             logger.info(f"Мастер запросил новое время для записи booking_id={booking_id}")
         await callback.answer()
     except Exception as e:
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка переноса записи booking_id={booking_id}", e)
         await callback.answer()
 
-@service_booking_router.message(BookingStates.AwaitingMasterTime, F.text)
+@service_booking_router.message(ServiceBookingStates.AwaitingMasterTime, F.text)
 @master_only
 async def process_master_time(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает ввод нового времени мастером."""
@@ -488,7 +388,7 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
             session.commit()
             success = await set_user_state(
                 state.key.bot_id, user.telegram_id, state.storage,
-                BookingStates.AwaitingUserConfirmation, {"booking_id": booking_id}
+                ServiceBookingStates.AwaitingUserConfirmation, {"booking_id": booking_id}
             )
             if not success:
                 await handle_error(
@@ -516,7 +416,7 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
             "Критическая ошибка. Попробуйте снова. 😔", f"Ошибка обработки нового времени для записи booking_id={booking_id}", e
         )
 
-@service_booking_router.message(BookingStates.AwaitingMasterResponse, F.text)
+@service_booking_router.message(ServiceBookingStates.AwaitingMasterResponse, F.text)
 @master_only
 async def process_master_rejection(message: Message, state: FSMContext, bot: Bot):
     """Обрабатывает причину отказа мастера."""
@@ -692,16 +592,3 @@ async def process_booking_cancellation(callback: CallbackQuery, state: FSMContex
             "Ошибка. Попробуйте снова. 😔", f"Ошибка отмены записи booking_id={booking_id}", e
         )
         await callback.answer()
-
-@service_booking_router.callback_query(F.data == "cancel_booking")
-async def cancel_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Отменяет процесс бронирования."""
-    sent_message = await send_message(
-        bot, str(callback.message.chat.id), "text",
-        "Действие отменено. ❌",
-        reply_markup=Keyboards.main_menu_kb()
-    )
-    if sent_message:
-        await state.update_data(last_message_id=sent_message.message_id)
-    await state.clear()
-    await callback.answer()

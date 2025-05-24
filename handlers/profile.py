@@ -4,6 +4,8 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from pydantic import ValidationError
+
 from config import MESSAGES
 from keyboards.main_kb import Keyboards
 from utils import setup_logger, UserInput, AutoInput
@@ -26,6 +28,9 @@ class ProfileStates(StatesGroup):
     AwaitingAutoYear = State()
     AwaitingAutoVin = State()
     AwaitingAutoLicensePlate = State()
+    RegisterFirstName = State()  # Новое состояние для регистрации
+    RegisterLastName = State()
+    RegisterPhone = State()
 
 
 PROFILE_PROGRESS_STEPS = {
@@ -35,25 +40,32 @@ PROFILE_PROGRESS_STEPS = {
     str(ProfileStates.AwaitingAutoBrand): 1,
     str(ProfileStates.AwaitingAutoYear): 2,
     str(ProfileStates.AwaitingAutoVin): 3,
-    str(ProfileStates.AwaitingAutoLicensePlate): 4
+    str(ProfileStates.AwaitingAutoLicensePlate): 4,
+    str(ProfileStates.RegisterFirstName): 1,
+    str(ProfileStates.RegisterLastName): 2,
+    str(ProfileStates.RegisterPhone): 3
 }
 
 
 @profile_router.message(F.text == "Личный кабинет 👤")
 async def enter_profile(message: Message, state: FSMContext, bot: Bot):
-    """Вход в личный кабинет."""
+    """Вход в личный кабинет или начало регистрации."""
     logger.info(f"Пользователь {message.from_user.id} вошёл в личный кабинет")
     try:
         with Session() as session:
             user = session.query(User).filter_by(telegram_id=str(message.from_user.id)).first()
             if not user:
-                logger.warning(f"Пользователь {message.from_user.id} не найден в базе")
-                await send_message(
+                logger.info(f"Пользователь {message.from_user.id} не зарегистрирован, начало регистрации")
+                sent_message = await send_message(
                     bot, str(message.chat.id), "text",
-                    "Вы не зарегистрированы. Начните с записи на ТО. 👤",
-                    reply_markup=Keyboards.main_menu_kb()
+                    (await get_progress_bar(ProfileStates.RegisterFirstName, PROFILE_PROGRESS_STEPS,
+                                            style="emoji")).format(
+                        message="Давайте познакомимся! 👤 Введите ваше <b>имя</b>:"
+                    )
                 )
-                await state.clear()
+                if sent_message:
+                    await state.update_data(last_message_id=sent_message.message_id)
+                    await state.set_state(ProfileStates.RegisterFirstName)
                 return
             response = (
                 f"<b>Личный кабинет</b> 👤\n"
@@ -73,6 +85,87 @@ async def enter_profile(message: Message, state: FSMContext, bot: Bot):
     except Exception as e:
         logger.error(f"Ошибка входа в личный кабинет для {message.from_user.id}: {str(e)}")
         await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка входа в личный кабинет", e)
+
+
+@profile_router.message(ProfileStates.RegisterFirstName, F.text)
+async def process_register_first_name(message: Message, state: FSMContext, bot: Bot):
+    """Обработка имени при регистрации."""
+    from .service_utils import process_user_input
+    await process_user_input(
+        message, state, bot,
+        UserInput.validate_first_name, "first_name",
+        "Введите вашу <b>фамилию</b>: 👤",
+        "Имя слишком короткое или длинное (2–50 символов). Введите снова: 😔",
+        ProfileStates.RegisterLastName,
+        PROFILE_PROGRESS_STEPS
+    )
+
+
+@profile_router.message(ProfileStates.RegisterLastName, F.text)
+async def process_register_last_name(message: Message, state: FSMContext, bot: Bot):
+    """Обработка фамилии при регистрации."""
+    from .service_utils import process_user_input
+    await process_user_input(
+        message, state, bot,
+        UserInput.validate_last_name, "last_name",
+        "Введите ваш номер телефона, начиная с <b>+7</b> (например, <b>+79991234567</b>): 📞",
+        "Фамилия слишком короткая или длинная (2–50 символов). Введите снова: 😔",
+        ProfileStates.RegisterPhone,
+        PROFILE_PROGRESS_STEPS
+    )
+
+
+@profile_router.message(ProfileStates.RegisterPhone, F.text)
+async def process_register_phone(message: Message, state: FSMContext, bot: Bot):
+    """Обработка телефона и регистрация пользователя."""
+    logger.info(f"Пользователь {message.from_user.id} ввёл телефон для регистрации")
+    try:
+        phone = message.text.strip()
+        # Проверяем телефон через validate_phone
+        UserInput.validate_phone(phone)
+        data = await state.get_data()
+        user_input = UserInput(
+            first_name=data["first_name"],
+            last_name=data["last_name"],
+            phone=phone
+        )
+        with Session() as session:
+            user = User(
+                first_name=user_input.first_name,
+                last_name=user_input.last_name,
+                phone=user_input.phone,
+                telegram_id=str(message.from_user.id)
+            )
+            session.add(user)
+            session.commit()
+            logger.info(f"Пользователь {message.from_user.id} зарегистрирован")
+            response = (
+                f"<b>Регистрация завершена</b> ✅\n"
+                f"Имя: {user.first_name}\n"
+                f"Фамилия: {user.last_name}\n"
+                f"Телефон: {user.phone}\n"
+            )
+            sent_message = await send_message(
+                bot, str(message.chat.id), "text",
+                response,
+                reply_markup=Keyboards.profile_menu_kb()
+            )
+            if sent_message:
+                await state.update_data(last_message_id=sent_message.message_id)
+                await state.set_state(ProfileStates.MainMenu)
+    except ValidationError as e:
+        logger.error(f"Ошибка валидации телефона для {message.from_user.id}: {str(e)}")
+        sent_message = await send_message(
+            bot, str(message.chat.id), "text",
+            (await get_progress_bar(ProfileStates.RegisterPhone, PROFILE_PROGRESS_STEPS, style="emoji")).format(
+                message="Некорректный номер телефона. Введите номер, начиная с +7 (например, +79991234567): 📞"
+            )
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+    except Exception as e:
+        logger.error(f"Ошибка регистрации для {message.from_user.id}: {str(e)}")
+        await handle_error(message, state, bot, "Ошибка регистрации. Попробуйте снова. 😔", "Ошибка регистрации", e)
 
 
 @profile_router.callback_query(ProfileStates.MainMenu, F.data == "edit_profile")
@@ -122,8 +215,11 @@ async def process_last_name(message: Message, state: FSMContext, bot: Bot):
 @profile_router.message(ProfileStates.AwaitingPhone, F.text)
 async def process_phone(message: Message, state: FSMContext, bot: Bot):
     """Обработка телефона и сохранение данных."""
+    logger.info(f"Пользователь {message.from_user.id} ввёл телефон")
     try:
         phone = message.text.strip()
+        # Проверяем телефон через validate_phone
+        UserInput.validate_phone(phone)
         data = await state.get_data()
         user_input = UserInput(
             first_name=data["first_name"],
@@ -151,6 +247,16 @@ async def process_phone(message: Message, state: FSMContext, bot: Bot):
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
                 await state.set_state(ProfileStates.MainMenu)
+    except ValidationError as e:
+        logger.error(f"Ошибка валидации телефона для {message.from_user.id}: {str(e)}")
+        sent_message = await send_message(
+            bot, str(message.chat.id), "text",
+            (await get_progress_bar(ProfileStates.AwaitingPhone, PROFILE_PROGRESS_STEPS, style="emoji")).format(
+                message="Некорректный номер телефона. Введите номер, начиная с +7 (например, +79991234567): 📞"
+            )
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
     except Exception as e:
         logger.error(f"Ошибка обновления данных для {message.from_user.id}: {str(e)}")
         await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка обновления данных", e)
@@ -491,8 +597,10 @@ async def show_booking_history(callback: CallbackQuery, state: FSMContext, bot: 
             for booking in bookings:
                 auto = session.query(Auto).get(booking.auto_id)
                 status_map = {
+                    BookingStatus.PENDING: "Ожидает подтверждения ⏳",
+                    BookingStatus.CONFIRMED: "Подтверждено ✅",
                     BookingStatus.REJECTED: "Отклонено ❌",
-                    BookingStatus.CANCELLED: "Отменено 🚫"
+                    BookingStatus.CANCELLED: "Отменено 🚫"  # Добавляем отображение
                 }
                 response += (
                     f"<b>Запись #{booking.id}</b>\n"

@@ -6,6 +6,9 @@ class RepairBookingStates(StatesGroup):
     AwaitingPhotos = State()
     AwaitingDate = State()
     AwaitingTime = State()
+    AwaitingMasterResponse = State()
+    AwaitingMasterTime = State()
+    AwaitingUserConfirmation = State()
 
 REPAIR_PROGRESS_STEPS = {
     str(RepairBookingStates.AwaitingAuto): 1,
@@ -20,6 +23,9 @@ class ServiceBookingStates(StatesGroup):
     AwaitingService = State()
     AwaitingDate = State()
     AwaitingTime = State()
+    AwaitingMasterResponse = State()
+    AwaitingMasterTime = State()
+    AwaitingUserConfirmation = State()
 
 SERVICE_PROGRESS_STEPS = {
     str(ServiceBookingStates.AwaitingAuto): 1,

@@ -15,6 +15,7 @@ class BookingStatus(enum.Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
     REJECTED = "rejected"
+    CANCELLED = "cancelled"  # Добавляем новый статус
 
 class User(Base):
     __tablename__ = "users"
