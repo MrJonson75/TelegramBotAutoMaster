@@ -290,8 +290,7 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
                 service_name=data["service_name"],
                 date=data["selected_date"].date(),
                 time=selected_time,
-                status=BookingStatus.PENDING,
-                created_at=datetime.utcnow()
+                status=BookingStatus.PENDING
             )
             session.add(booking)
             session.commit()

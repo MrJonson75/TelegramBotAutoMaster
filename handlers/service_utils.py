@@ -163,31 +163,23 @@ async def get_booking_context(
         await handle_error(source, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка контекста записи booking_id={booking_id}", e)
         return None, None, None
 
-async def send_booking_notification(
-    bot: Bot,
-    chat_id: str,
-    booking: Booking,
-    user: User,
-    auto: Auto,
-    message: str,
-    reply_markup: Optional[InlineKeyboardMarkup] = None
-) -> bool:
-    """Отправляет уведомление о бронировании."""
+async def send_booking_notification(bot: Bot, chat_id: str, booking: Booking, user: User, auto: Auto, message: str, reply_markup=None) -> bool:
+    """Отправляет уведомление пользователю о статусе бронирования."""
     try:
-        sent_message = await send_message(
-            bot, chat_id, "text",
+        text = (
             f"{message}\n"
-            f"<b>Пользователь:</b> {user.first_name} {user.last_name or ''} 📋\n"
-            f"<b>Телефон:</b> {user.phone or 'Не указано'} 📞\n"
-            f"<b>Авто:</b> {auto.brand}, {auto.year}, {auto.license_plate} 🚗\n"
-            f"<b>Услуга:</b> {booking.service_name} 🔧\n"
-            f"<b>Дата:</b> {booking.date.strftime('%d.%m.%Y')} 📅\n"
-            f"<b>Время:</b> {booking.time.strftime('%H:%M')} ⏰",
-            reply_markup=reply_markup
+            f"<b>Заявка:</b> #{booking.id}\n"
+            f"<b>Услуга:</b> {booking.service_name}\n"
+            f"<b>Авто:</b> {auto.brand} {auto.model} {auto.license_plate}\n"
+            f"<b>Дата:</b> {booking.date.strftime('%d.%m.%Y')}\n"
+            f"<b>Время:</b> {booking.time.strftime('%H:%M')}"
         )
-        return sent_message is not None
+        if booking.status == BookingStatus.REJECTED:
+            text += f"\n<b>Причина:</b> {booking.rejection_reason}"
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", reply_markup=reply_markup)
+        return True
     except Exception as e:
-        logger.error(f"Ошибка отправки уведомления в чат {chat_id} для booking_id={booking.id}: {str(e)}")
+        logger.error(f"Ошибка отправки уведомления для booking_id={booking.id}: {str(e)}")
         return False
 
 async def set_user_state(
