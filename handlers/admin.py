@@ -292,7 +292,8 @@ async def process_new_time_selection(callback: CallbackQuery, state: FSMContext,
                 f"📅 Время вашей заявки #{booking.id} изменено.\n"
                 f"Новая дата: {booking.date.strftime('%d.%m.%Y')}\n"
                 f"Новое время: {booking.time.strftime('%H:%M')}\n"
-                f"Ожидайте подтверждения."
+                f"Пожалуйста, подтвердите или отклоните новое время.",
+                reply_markup=Keyboards.confirm_reschedule_kb(booking_id)
             )
             if not success:
                 logger.warning(f"Не удалось уведомить пользователя user_id={user.telegram_id} об изменении времени записи booking_id={booking_id}")

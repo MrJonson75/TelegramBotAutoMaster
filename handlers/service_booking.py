@@ -485,16 +485,6 @@ async def process_user_confirmation(callback: CallbackQuery, state: FSMContext, 
                 logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
                 await callback.answer("Доступ только для владельца записи. 🔒")
                 return
-            if not booking.proposed_time:
-                await handle_error(
-                    callback, state, bot,
-                    "Ошибка: предложенное время не найдено. ⏰", f"Предложенное время не найдено для booking_id={booking_id}",
-                    Exception("Предложенное время не найдено")
-                )
-                await callback.answer()
-                return
-            booking.time = booking.proposed_time
-            booking.proposed_time = None
             booking.status = BookingStatus.CONFIRMED
             session.commit()
             success = await send_booking_notification(
@@ -539,7 +529,6 @@ async def process_user_rejection(callback: CallbackQuery, state: FSMContext, bot
                 return
             booking.status = BookingStatus.REJECTED
             booking.rejection_reason = "Пользователь отклонил предложенное время"
-            booking.proposed_time = None
             session.commit()
             success = await send_booking_notification(
                 bot, ADMIN_ID, booking, user, auto,
