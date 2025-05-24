@@ -399,7 +399,7 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
             if not booking:
                 return
             new_time = datetime.strptime(time_str, "%H:%M").time()
-            booking.proposed_time = new_time
+            booking.time = new_time
             booking.status = BookingStatus.PENDING
             session.commit()
             success = await set_user_state(
