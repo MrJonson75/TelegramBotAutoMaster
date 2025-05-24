@@ -1,10 +1,9 @@
 from typing import Tuple, Optional, List
-
 from aiogram import Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputFile
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.orm import Session
-from database import User, Auto, Booking
+from database import User, Auto, Booking, BookingStatus
 from config import ADMIN_ID, MESSAGES, REMINDER_TIME_MINUTES
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
@@ -12,6 +11,7 @@ from datetime import datetime, time, timedelta
 import asyncio
 import hashlib
 import json
+import os  # Добавляем для проверки существования файла
 
 logger = setup_logger(__name__)
 
@@ -21,7 +21,14 @@ async def send_message(bot: Bot, chat_id: str, message_type: str, message: str =
         if message_type == "text":
             return await bot.send_message(chat_id=chat_id, text=message, parse_mode="HTML", **kwargs)
         elif message_type == "photo":
-            return await bot.send_photo(chat_id=chat_id, caption=message, parse_mode="HTML", **kwargs)
+            photo = kwargs.pop("photo", None)
+            if not photo:
+                logger.error("Параметр 'photo' не предоставлен для отправки фото")
+                return None
+            # Если photo — строка и это путь к файлу, преобразуем в InputFile
+            if isinstance(photo, str) and os.path.isfile(photo):
+                photo = InputFile(photo)
+            return await bot.send_photo(chat_id=chat_id, photo=photo, caption=message, parse_mode="HTML", **kwargs)
         logger.warning(f"Неизвестный тип сообщения: {message_type}")
         return None
     except Exception as e:
@@ -92,6 +99,35 @@ async def check_user_and_autos(
         await handle_error(source, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка проверки пользователя {context}", e)
         return None, []
 
+async def check_user_registered(
+    session: Session,
+    user_id: str,
+    bot: Bot,
+    source: Message | CallbackQuery,
+    state: FSMContext,
+    context: str = "action"
+) -> Optional[User]:
+    """Проверяет, зарегистрирован ли пользователь."""
+    try:
+        user = session.query(User).filter_by(telegram_id=user_id).first()
+        if not user:
+            logger.info(f"Пользователь {user_id} не зарегистрирован в контексте {context}")
+            chat_id = str(source.chat.id) if isinstance(source, Message) else str(source.message.chat.id)
+            sent_message = await send_message(
+                bot, chat_id, "text",
+                "Вы не зарегистрированы. Перейдите в <b>Личный кабинет</b> для регистрации. 👤",
+                reply_markup=Keyboards.main_menu_kb()
+            )
+            if sent_message:
+                await state.update_data(last_message_id=sent_message.message_id)
+            await state.clear()
+            return None
+        return user
+    except Exception as e:
+        logger.error(f"Ошибка проверки пользователя {user_id} в контексте {context}: {str(e)}")
+        await handle_error(source, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка проверки пользователя {context}", e)
+        return None
+
 def master_only(func):
     """Декоратор: доступ только для мастера."""
     async def wrapper(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -141,8 +177,8 @@ async def send_booking_notification(
         sent_message = await send_message(
             bot, chat_id, "text",
             f"{message}\n"
-            f"<b>Пользователь:</b> {user.first_name} {user.last_name} 📋\n"
-            f"<b>Телефон:</b> {user.phone} 📞\n"
+            f"<b>Пользователь:</b> {user.first_name} {user.last_name or ''} 📋\n"
+            f"<b>Телефон:</b> {user.phone or 'Не указано'} 📞\n"
             f"<b>Авто:</b> {auto.brand}, {auto.year}, {auto.license_plate} 🚗\n"
             f"<b>Услуга:</b> {booking.service_name} 🔧\n"
             f"<b>Дата:</b> {booking.date.strftime('%d.%m.%Y')} 📅\n"
@@ -200,7 +236,7 @@ async def schedule_reminder(bot: Bot, booking: Booking, user: User, auto: Auto):
             bot, booking.id, reminder_time,
             ADMIN_ID,
             f"Напоминание: запись #{booking.id} через {REMINDER_TIME_MINUTES} минут! ⏰\n"
-            f"<b>Пользователь:</b> {user.first_name} {user.last_name}\n"
+            f"<b>Пользователь:</b> {user.first_name} {user.last_name or ''}\n"
             f"<b>Авто:</b> {auto.brand}, {auto.year}, {auto.license_plate}\n"
             f"<b>Услуга:</b> {booking.service_name}\n"
             f"<b>Время:</b> {booking.date.strftime('%d.%m.%Y')} {booking.time.strftime('%H:%M')}"
@@ -241,10 +277,11 @@ async def process_user_input(
     reply_markup: Optional[InlineKeyboardMarkup] = None
 ) -> None:
     """Обрабатывает ввод пользователя с валидацией."""
+    from pydantic import ValidationError
     try:
         value = message.text.strip()
-        validate_func(value)
-        await state.update_data(**{field_name: value})
+        validated_value = validate_func(value)
+        await state.update_data(**{field_name: validated_value})
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
             (await get_progress_bar(next_state, progress_steps, style="emoji")).format(message=success_message),
@@ -253,12 +290,20 @@ async def process_user_input(
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
             await state.set_state(next_state)
-    except Exception as e:
+    except ValidationError as e:
         logger.error(f"Ошибка валидации {field_name} для user_id={message.from_user.id}: {str(e)}")
         sent_message = await send_message(
             bot, str(message.chat.id), "text",
-            (await get_progress_bar(state.get_state(), progress_steps, style="emoji")).format(message=error_message),
+            (await get_progress_bar(await state.get_state(), progress_steps, style="emoji")).format(message=error_message),
             reply_markup=reply_markup
         )
         if sent_message:
             await state.update_data(last_message_id=sent_message.message_id)
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при обработке {field_name} для user_id={message.from_user.id}: {str(e)}")
+        await handle_error(
+            message, state, bot,
+            "Ошибка. Попробуйте снова. 😔",
+            f"Неожиданная ошибка при обработке {field_name}",
+            e
+        )
