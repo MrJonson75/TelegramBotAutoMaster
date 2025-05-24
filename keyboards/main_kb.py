@@ -215,21 +215,23 @@ class Keyboards:
         keyboard = []
         for booking in bookings:
             auto = booking.auto
-            status = {
+            status_map = {
                 BookingStatus.PENDING: "⏳ Ожидает",
                 BookingStatus.CONFIRMED: "✅ Подтверждено",
                 BookingStatus.REJECTED: "❌ Отклонено"
-            }[booking.status]
+            }
+            status = status_map.get(booking.status, "Неизвестно")
             text = (
-                f"{booking.service_name} | {booking.date.strftime('%d.%m.%Y')} {booking.time.strftime('%H:%M')} | "
-                f"{auto.brand} {auto.license_plate} | {status}"
+                f"#{booking.id} {booking.service_name} | {booking.date.strftime('%d.%m.%Y')} "
+                f"{booking.time.strftime('%H:%M')} | {auto.brand} {auto.license_plate} | {status}"
             )
             buttons = []
             if booking.status in [BookingStatus.PENDING, BookingStatus.CONFIRMED]:
-                buttons.append(InlineKeyboardButton(text="Отменить", callback_data=f"cancel_booking_{booking.id}"))
+                buttons.append(InlineKeyboardButton(text="Отменить ❌", callback_data=f"cancel_booking_{booking.id}"))
             keyboard.append([InlineKeyboardButton(text=text, callback_data=f"view_booking_{booking.id}")])
             if buttons:
                 keyboard.append(buttons)
+        keyboard.append([InlineKeyboardButton(text="Назад ⬅", callback_data="back_to_profile")])
         return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     @staticmethod

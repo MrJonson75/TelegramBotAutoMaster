@@ -26,6 +26,7 @@ class ProfileStates(StatesGroup):
     AwaitingAutoLicensePlate = State()
     RegisterAwaitingPhone = State()
     RegisterConfirm = State()
+    ViewingBooking = State()
 
 PROFILE_PROGRESS_STEPS = {
     str(ProfileStates.AwaitingFirstName): 1,
@@ -627,7 +628,7 @@ async def back_to_profile(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
 @profile_router.callback_query(ProfileStates.MainMenu, F.data == "my_bookings")
 async def show_bookings(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Показ активных записей."""
+    """Показ активных записей с возможностью просмотра и отмены."""
     logger.info(f"Пользователь {callback.from_user.id} запросил активные записи")
     try:
         with Session() as session:
@@ -647,26 +648,22 @@ async def show_bookings(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 await state.set_state(ProfileStates.MainMenu)
                 await callback.answer()
                 return
-            response = "<b>Ваши активные записи</b> 📜\n\n"
-            for booking in bookings:
-                auto = session.query(Auto).get(booking.auto_id)
-                status_map = {
-                    BookingStatus.PENDING: "Ожидает подтверждения ⏳",
-                    BookingStatus.CONFIRMED: "Подтверждено ✅"
-                }
-                response += (
-                    f"<b>Запись #{booking.id}</b>\n"
-                    f"<b>Услуга:</b> {booking.service_name} 🔧\n"
-                    f"<b>Дата:</b> {booking.date.strftime('%d.%m.%Y')} 📅\n"
-                    f"<b>Время:</b> {booking.time.strftime('%H:%M')} ⏰\n"
-                    f"<b>Авто:</b> {auto.brand}, {auto.year}, {auto.license_plate} 🚗\n"
-                    f"<b>Статус:</b> {status_map[booking.status]}\n\n"
+            response = "<b>Ваши активные записи</b> 📜\nВыберите запись для просмотра или отмены:"
+            try:
+                photo_path = get_photo_path("bookings")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "photo",
+                    response,
+                    photo=photo_path,
+                    reply_markup=Keyboards.bookings_kb(bookings)
                 )
-            sent_message = await send_message(
-                bot, str(callback.message.chat.id), "text",
-                response,
-                reply_markup=Keyboards.profile_menu_kb()
-            )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото bookings для {callback.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    response,
+                    reply_markup=Keyboards.bookings_kb(bookings)
+                )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
                 await state.set_state(ProfileStates.MainMenu)
@@ -674,6 +671,120 @@ async def show_bookings(callback: CallbackQuery, state: FSMContext, bot: Bot):
     except Exception as e:
         logger.error(f"Ошибка получения записей для {callback.from_user.id}: {str(e)}")
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка получения записей", e)
+        await callback.answer()
+
+@profile_router.callback_query(ProfileStates.ViewingBooking, F.data == "my_bookings")
+async def back_to_bookings(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Возврат к списку активных записей из просмотра записи."""
+    logger.info(f"Пользователь {callback.from_user.id} возвращается к списку записей")
+    try:
+        with Session() as session:
+            user = session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first()
+            bookings = session.query(Booking).filter(
+                Booking.user_id == user.id,
+                Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED])
+            ).all()
+            if not bookings:
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    "У вас нет активных записей. 📝",
+                    reply_markup=Keyboards.profile_menu_kb()
+                )
+                if sent_message:
+                    await state.update_data(last_message_id=sent_message.message_id)
+                await state.set_state(ProfileStates.MainMenu)
+                await callback.answer()
+                return
+            response = "<b>Ваши активные записи</b> 📜\nВыберите запись для просмотра или отмены:"
+            try:
+                photo_path = get_photo_path("bookings")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "photo",
+                    response,
+                    photo=photo_path,
+                    reply_markup=Keyboards.bookings_kb(bookings)
+                )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото bookings для {callback.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    response,
+                    reply_markup=Keyboards.bookings_kb(bookings)
+                )
+            if sent_message:
+                await state.update_data(last_message_id=sent_message.message_id)
+                await state.set_state(ProfileStates.MainMenu)
+            await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка возврата к списку записей для {callback.from_user.id}: {str(e)}")
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка возврата к списку записей", e)
+        await callback.answer()
+
+@profile_router.callback_query(F.data.startswith("view_booking_"))
+async def view_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Показывает детали выбранной записи."""
+    logger.info(f"Пользователь {callback.from_user.id} просматривает запись")
+    booking_id = int(callback.data.replace("view_booking_", ""))
+    try:
+        with Session() as session:
+            booking = session.query(Booking).get(booking_id)
+            if not booking:
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    "Запись не найдена. 📝",
+                    reply_markup=Keyboards.profile_menu_kb()
+                )
+                if sent_message:
+                    await state.update_data(last_message_id=sent_message.message_id)
+                await state.set_state(ProfileStates.MainMenu)
+                await callback.answer()
+                return
+            if str(callback.from_user.id) != str(booking.user.telegram_id):
+                logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
+                await callback.answer("Доступ только для владельца записи. 🔒")
+                return
+            auto = session.query(Auto).get(booking.auto_id)
+            status_map = {
+                BookingStatus.PENDING: "Ожидает подтверждения ⏳",
+                BookingStatus.CONFIRMED: "Подтверждено ✅",
+                BookingStatus.REJECTED: "Отклонено ❌",
+                BookingStatus.CANCELLED: "Отменено 🚫"
+            }
+            response = (
+                f"<b>Запись #{booking.id}</b> 📋\n"
+                f"<b>Услуга:</b> {booking.service_name} 🔧\n"
+                f"<b>Дата:</b> {booking.date.strftime('%d.%m.%Y')} 📅\n"
+                f"<b>Время:</b> {booking.time.strftime('%H:%M')} ⏰\n"
+                f"<b>Авто:</b> {auto.brand}, {auto.year}, {auto.license_plate} 🚗\n"
+                f"<b>Статус:</b> {status_map[booking.status]}\n"
+            )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Назад ⬅", callback_data="my_bookings")]
+            ])
+            if booking.status in [BookingStatus.PENDING, BookingStatus.CONFIRMED]:
+                keyboard.inline_keyboard.insert(0, [InlineKeyboardButton(text="Отменить ❌", callback_data=f"cancel_booking_{booking.id}")])
+            try:
+                photo_path = get_photo_path("booking_details")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "photo",
+                    response,
+                    photo=photo_path,
+                    reply_markup=keyboard
+                )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото booking_details для {callback.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    response,
+                    reply_markup=keyboard
+                )
+            if sent_message:
+                await state.update_data(last_message_id=sent_message.message_id)
+                await state.set_state(ProfileStates.ViewingBooking)
+            await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка просмотра записи {booking_id} для {callback.from_user.id}: {str(e)}")
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка просмотра записи", e)
         await callback.answer()
 
 @profile_router.callback_query(ProfileStates.MainMenu, F.data == "booking_history")
@@ -685,7 +796,7 @@ async def show_booking_history(callback: CallbackQuery, state: FSMContext, bot: 
             user = session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first()
             bookings = session.query(Booking).filter(
                 Booking.user_id == user.id,
-                Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED])
+                Booking.status.in_([BookingStatus.REJECTED, BookingStatus.CANCELLED])
             ).all()
             if not bookings:
                 sent_message = await send_message(
@@ -702,8 +813,6 @@ async def show_booking_history(callback: CallbackQuery, state: FSMContext, bot: 
             for booking in bookings:
                 auto = session.query(Auto).get(booking.auto_id)
                 status_map = {
-                    BookingStatus.PENDING: "Ожидает подтверждения ⏳",
-                    BookingStatus.CONFIRMED: "Подтверждено ✅",
                     BookingStatus.REJECTED: "Отклонено ❌",
                     BookingStatus.CANCELLED: "Отменено 🚫"
                 }
