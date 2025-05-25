@@ -589,8 +589,47 @@ async def delete_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
 @profile_router.callback_query(ProfileStates.ManagingAutos, F.data == "back_to_profile")
 async def back_to_profile(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Возврат в меню личного кабинета."""
+    """Возврат в меню личного кабинета из управления автомобилями."""
     logger.info(f"Пользователь {callback.from_user.id} вернулся в меню личного кабинета")
+    try:
+        with Session() as session:
+            user = session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first()
+            response = (
+                f"<b>Личный кабинет</b> 👤\n"
+                f"Имя: {user.first_name}\n"
+                f"Фамилия: {user.last_name or 'Не указано'}\n"
+                f"Телефон: {user.phone or 'Не указано'}\n"
+                f"Имя пользователя: {user.username or 'Не указано'}\n"
+                f"Дата рождения: {user.birth_date or 'Не указано'}\n"
+            )
+            try:
+                photo_path = get_photo_path("profile")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "photo",
+                    response,
+                    photo=photo_path,
+                    reply_markup=Keyboards.profile_menu_kb()
+                )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото профиля для {callback.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    response,
+                    reply_markup=Keyboards.profile_menu_kb()
+                )
+            if sent_message:
+                await state.update_data(last_message_id=sent_message.message_id)
+                await state.set_state(ProfileStates.MainMenu)
+            await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка возврата в личный кабинет для {callback.from_user.id}: {str(e)}")
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка возврата в личный кабинет", e)
+        await callback.answer()
+
+@profile_router.callback_query(ProfileStates.MainMenu, F.data == "back_to_profile")
+async def back_to_profile_main_menu(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Возврат в меню личного кабинета из списка записей."""
+    logger.info(f"Пользователь {callback.from_user.id} вернулся в меню личного кабинета из списка записей")
     try:
         with Session() as session:
             user = session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first()

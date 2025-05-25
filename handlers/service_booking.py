@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from config import MESSAGES, SERVICES, get_photo_path, ADMIN_ID
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
+from .profile import ProfileStates
 from database import User, Auto, Booking, BookingStatus, Session
 from datetime import datetime
 import asyncio
@@ -555,6 +556,7 @@ async def process_user_rejection(callback: CallbackQuery, state: FSMContext, bot
         )
         await callback.answer()
 
+
 @service_booking_router.callback_query(F.data.startswith("cancel_booking_"))
 async def process_booking_cancellation(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Обрабатывает отмену записи пользователем."""
@@ -566,7 +568,8 @@ async def process_booking_cancellation(callback: CallbackQuery, state: FSMContex
                 await callback.answer()
                 return
             if str(callback.from_user.id) != str(booking.user.telegram_id):
-                logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
+                logger.warning(
+                    f"Несанкционированный доступ: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
                 await callback.answer("Доступ только для владельца записи. 🔒")
                 return
             booking.status = BookingStatus.CANCELLED
@@ -579,18 +582,49 @@ async def process_booking_cancellation(callback: CallbackQuery, state: FSMContex
             )
             if not success:
                 logger.warning(f"Не удалось уведомить мастера об отмене записи booking_id={booking_id}")
-            sent_message = await send_message(
-                bot, str(callback.message.chat.id), "text",
-                f"Вы отменили запись: ❌\n"
-                f"<b>Услуга:</b> {booking.service_name} 🔧\n"
-                f"<b>Дата:</b> {booking.date.strftime('%d.%m.%Y')} 📅\n"
-                f"<b>Время:</b> {booking.time.strftime('%H:%M')} ⏰",
-                reply_markup=Keyboards.main_menu_kb()
-            )
+
+            # Добавляем задержку в 4 секунды
+            logger.info(f"Начало задержки для booking_id={booking_id}")
+            await asyncio.sleep(4)
+            logger.info(f"Задержка завершена для booking_id={booking_id}")
+
+            # Показать список активных записей после отмены
+            bookings = session.query(Booking).filter(
+                Booking.user_id == user.id,
+                Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED])
+            ).all()
+            if not bookings:
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    "У вас нет активных записей. 📝",
+                    reply_markup=Keyboards.profile_menu_kb()
+                )
+                if sent_message:
+                    await state.update_data(last_message_id=sent_message.message_id)
+                await state.set_state(ProfileStates.MainMenu)
+                await callback.answer("Запись отменена. ❌")
+                return
+
+            response = "<b>Ваши активные записи</b> 📜\nВыберите запись для просмотра или отмены:"
+            try:
+                photo_path = get_photo_path("bookings")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "photo",
+                    response,
+                    photo=photo_path,
+                    reply_markup=Keyboards.bookings_kb(bookings)
+                )
+            except FileNotFoundError as e:
+                logger.warning(f"Не удалось отправить фото bookings для {callback.from_user.id}: {str(e)}")
+                sent_message = await send_message(
+                    bot, str(callback.message.chat.id), "text",
+                    response,
+                    reply_markup=Keyboards.bookings_kb(bookings)
+                )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
+            await state.set_state(ProfileStates.MainMenu)
             await callback.answer("Запись отменена. ❌")
-            await state.clear()
     except Exception as e:
         await handle_error(
             callback, state, bot,
