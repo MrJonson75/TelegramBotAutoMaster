@@ -3,7 +3,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from config import MESSAGES, SERVICES, get_photo_path, ADMIN_ID
 from keyboards.main_kb import Keyboards
-from utils import setup_logger
+from utils import setup_logger, reminder_manager
 from .profile import ProfileStates
 from database import User, Auto, Booking, BookingStatus, Session
 from datetime import datetime
@@ -15,7 +15,7 @@ from .service_utils import (
     master_only, get_booking_context, send_booking_notification, set_user_state,
     notify_master, schedule_reminder, schedule_user_reminder
 )
-from .reminder_manager import reminder_manager
+
 
 service_booking_router = Router()
 logger = setup_logger(__name__)

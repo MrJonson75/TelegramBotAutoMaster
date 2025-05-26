@@ -260,3 +260,45 @@ class Keyboards:
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Отменить ❌", callback_data="cancel")]
         ])
+
+    @staticmethod
+    def bookings_history_kb(bookings: list, page: int = 0, bookings_per_page: int = 5) -> InlineKeyboardMarkup:
+        """Создаёт инлайн-клавиатуру для истории записей с пагинацией."""
+        keyboard = []
+        start_idx = page * bookings_per_page
+        end_idx = min(start_idx + bookings_per_page, len(bookings))
+        for booking in bookings[start_idx:end_idx]:
+            auto = booking.auto
+            status_map = {
+                BookingStatus.PENDING: "⏳ Ожидает",
+                BookingStatus.CONFIRMED: "✅ Подтверждено",
+                BookingStatus.REJECTED: "❌ Отклонено",
+                BookingStatus.CANCELLED: "🚫 Отменено",
+                BookingStatus.COMPLETED: "✅ Выполнено"
+            }
+            status = status_map.get(booking.status, "Неизвестно")
+            text = (
+                f"#{booking.id} {booking.service_name} | {booking.date.strftime('%d.%m.%Y')} "
+                f"{booking.time.strftime('%H:%M')} | {auto.brand} {auto.license_plate} | {status}"
+            )
+            keyboard.append([InlineKeyboardButton(text=text, callback_data=f"view_booking_{booking.id}")])
+            buttons = []
+            if booking.status == BookingStatus.COMPLETED and not booking.review:
+                buttons.append(
+                    InlineKeyboardButton(text="Оставить отзыв ⭐", callback_data=f"leave_review_{booking.id}"))
+            if booking.status in [BookingStatus.REJECTED, BookingStatus.CANCELLED]:
+                buttons.append(InlineKeyboardButton(text="Удалить 🗑", callback_data=f"delete_booking_{booking.id}"))
+            if buttons:
+                keyboard.append(buttons)
+
+        # Кнопки пагинации
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton(text="⬅ Назад", callback_data=f"history_page_{page - 1}"))
+        if end_idx < len(bookings):
+            nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡", callback_data=f"history_page_{page + 1}"))
+        nav_buttons.append(InlineKeyboardButton(text="Назад в профиль ⬅", callback_data="back_to_profile"))
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+
+        return InlineKeyboardMarkup(inline_keyboard=keyboard)

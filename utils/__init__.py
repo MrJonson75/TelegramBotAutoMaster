@@ -4,6 +4,8 @@ from .gpt_helper import analyze_text_description
 from .init import delete_previous_message
 from .validation import UserInput, AutoInput
 from .misc import on_start, on_shutdown
+from .status_updater import update_booking_statuses, start_status_updater
+from .reminder_manager import ReminderManager, reminder_manager
 
 __all__ = [
     'setup_logger',
@@ -14,5 +16,9 @@ __all__ = [
     'UserInput',
     'AutoInput',
     'on_start',
-    'on_shutdown'
+    'on_shutdown',
+    'update_booking_statuses',
+    'start_status_updater',
+    'ReminderManager',
+    'reminder_manager'
 ]

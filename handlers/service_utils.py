@@ -4,13 +4,10 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.orm import Session
 from database import User, Auto, Booking, BookingStatus
-from config import ADMIN_ID, MESSAGES, REMINDER_TIME_MINUTES
+from config import ADMIN_ID, REMINDER_TIME_MINUTES
 from keyboards.main_kb import Keyboards
 from utils import setup_logger
-from datetime import datetime, time, timedelta
-import asyncio
-import hashlib
-import json
+from datetime import datetime, timedelta
 import os
 
 logger = setup_logger(__name__)
@@ -240,7 +237,7 @@ async def notify_master(bot: Bot, booking: Booking, user: User, auto: Auto) -> b
 async def schedule_reminder(bot: Bot, booking: Booking, user: User, auto: Auto):
     """Планирует напоминание мастеру."""
     try:
-        from .reminder_manager import reminder_manager
+        from utils import reminder_manager
         if booking.status != BookingStatus.PENDING:
             return
         reminder_time = datetime.combine(booking.date, booking.time) - timedelta(minutes=REMINDER_TIME_MINUTES)
@@ -261,7 +258,7 @@ async def schedule_reminder(bot: Bot, booking: Booking, user: User, auto: Auto):
 async def schedule_user_reminder(bot: Bot, booking: Booking, user: User, auto: Auto):
     """Планирует напоминание пользователю."""
     try:
-        from .reminder_manager import reminder_manager
+        from utils import reminder_manager
         if booking.status != BookingStatus.CONFIRMED:
             return
         reminder_time = datetime.combine(booking.date, booking.time) - timedelta(minutes=REMINDER_TIME_MINUTES)

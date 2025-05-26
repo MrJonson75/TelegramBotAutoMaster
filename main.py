@@ -4,7 +4,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import BOT_TOKEN
 from database import init_db
 from handlers import all_handlers
-from utils import setup_logger, on_start, on_shutdown
+from utils import setup_logger, on_start, on_shutdown, start_status_updater
 
 
 logger = setup_logger(__name__)
@@ -26,6 +26,7 @@ async def main():
 
     # Регистрация всех обработчиков
     dp.include_router(all_handlers)
+    start_status_updater()
 
     # Регистрация функций startup и shutdown
     dp.startup.register(on_start)
