@@ -9,7 +9,7 @@ from keyboards.main_kb import Keyboards
 from utils import setup_logger, UserInput, AutoInput
 from database import User, Auto, Booking, BookingStatus, Session, Review
 from .service_utils import send_message, handle_error, get_progress_bar, send_booking_notification
-from config import get_photo_path, ADMIN_ID
+from config import get_photo_path, ADMIN_ID, UPLOAD_USER_DIR
 
 profile_router = Router()
 logger = setup_logger(__name__)
@@ -1083,7 +1083,7 @@ async def process_review_photo(message: Message, state: FSMContext, bot: Bot):
             return
         photo = message.photo[-1]  # Берём фото наилучшего качества
         file_info = await bot.get_file(photo.file_id)
-        file_path = f"photos/review_{message.from_user.id}_{len(photos) + 1}_{photo.file_id}.jpg"
+        file_path = f"{UPLOAD_USER_DIR}/review_{message.from_user.id}_{len(photos) + 1}_{photo.file_id}.jpg"
         await bot.download_file(file_info.file_path, file_path)
         photos.append(file_path)
         await state.update_data(review_photos=photos)

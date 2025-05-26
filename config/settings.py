@@ -8,6 +8,15 @@ YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 ADMIN_ID = os.getenv("ADMIN_ID")
 PHOTO_DIR = "photos"
+UPLOAD_USER_DIR = "media/user_images"
+
+# Создаем директорию, если она не существует
+if not os.path.exists(PHOTO_DIR):
+    os.makedirs(PHOTO_DIR)
+
+# Создаем директорию, если она не существует
+if not os.path.exists(UPLOAD_USER_DIR):
+    os.makedirs(UPLOAD_USER_DIR)
 
 def get_photo_path(file_name: str) -> str:
     """
