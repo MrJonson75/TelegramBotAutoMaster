@@ -83,15 +83,9 @@ async def cmd_about_master(message: Message):
     back_button = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Назад в меню ⬅", callback_data="back_to_main")
     ]])
-    # Сначала отправляем фото
-    if await send_message_with_cleanup(
-            message,
-            None,  # Без текста, только фото
-            photo_path=get_photo_path("about_master")
-    ):
-        # Затем отправляем текст с информацией
-        await send_message_with_cleanup(
-            message,
-            f"<b>О мастере</b>\n{MESSAGES['about_master']} 🔧",
-            reply_markup=back_button
-        )
+    await send_message_with_cleanup(
+        message,
+        MESSAGES['about_master'],
+        photo_path=get_photo_path("about_master"),
+        reply_markup = back_button
+    )
