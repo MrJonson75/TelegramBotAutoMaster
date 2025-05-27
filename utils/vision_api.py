@@ -19,10 +19,10 @@ async def analyze_images(image_data_list: list, user_comment: str) -> str:
         "x-folder-id": YANDEX_FOLDER_ID,
         "Content-Type": "application/json"
     }
-    logger.info(f"Using Yandex API Key: {YANDEX_API_KEY[:4]}...{YANDEX_API_KEY[-4:]}")
+    logger.info(f"Использование ключа API Yandex: {YANDEX_API_KEY[:4]}...{YANDEX_API_KEY[-4:]}")
     for image_data in image_data_list:
         try:
-            logger.info("Processing image with Yandex Vision API")
+            logger.info("Обработка изображения с API Yandex Vision")
             image_base64 = base64.b64encode(image_data).decode('utf-8')
             request_body = {
                 "folderId": YANDEX_FOLDER_ID,
@@ -40,17 +40,17 @@ async def analyze_images(image_data_list: list, user_comment: str) -> str:
                     }
                 ]
             }
-            logger.debug(f"Vision API request body: {json.dumps(request_body)[:200]}...")
+            logger.debug(f"Vision API -запрос тела: {json.dumps(request_body)[:200]}...")
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     "https://vision.api.cloud.yandex.net/vision/v1/batchAnalyze",
                     headers=auth_header,
                     json=request_body
                 )
-                logger.debug(f"Vision API response status: {response.status_code}")
+                logger.debug(f"Статус ответа API Vision: {response.status_code}")
                 if response.status_code == 200:
                     result = response.json()
-                    logger.debug(f"Vision API response: {json.dumps(result)[:200]}...")
+                    logger.debug(f"Ответ API Vision: {json.dumps(result)[:200]}...")
                     text = ""
                     for spec in result.get("results", [])[0].get("results", []):
                         for block in spec.get("textDetection", {}).get("pages", [])[0].get("blocks", []):
@@ -58,12 +58,12 @@ async def analyze_images(image_data_list: list, user_comment: str) -> str:
                                 text += " ".join([entity["text"] for entity in line["words"]]) + " "
                     if text.strip():
                         text_results.append(text.strip())
-                        logger.info(f"Detected text: {text[:100]}")
+                        logger.info(f"Обнаруженный текст: {text[:100]}")
                     else:
-                        logger.info("No text detected in image")
+                        logger.info("Нет текста, обнаруженного на изображении")
                         text_results.append("Текст не распознан")
                 else:
-                    logger.error(f"Yandex Vision API error: {response.status_code} - {response.text}")
+                    logger.error(f"Ошибка API API Yandex Vision: {response.status_code} - {response.text}")
                     text_results.append(f"Ошибка Vision API: {response.status_code} - {response.text}")
         except Exception as e:
             logger.error(f"Ошибка обработки изображения: {str(e)}")
@@ -79,9 +79,9 @@ async def analyze_with_gpt_only(user_comment: str, extracted_text: str) -> str:
     """Анализирует комментарий и извлечённый текст через Yandex GPT."""
     try:
         if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
-            logger.error("YANDEX_API_KEY or YANDEX_FOLDER_ID is missing")
+            logger.error("Yandex_api_key или yandex_folder_id отсутствует")
             return f"Распознанное фото: {extracted_text}\nАнализ недоступен: Yandex ключи не настроены."
-        logger.info("Sending extracted text and user comment to Yandex GPT")
+        logger.info("Отправка извлеченного текста и комментария пользователя в Yandex GPT")
         auth_header = {
             "Authorization": f"Api-Key {YANDEX_API_KEY.strip()}",
             "x-folder-id": YANDEX_FOLDER_ID,
