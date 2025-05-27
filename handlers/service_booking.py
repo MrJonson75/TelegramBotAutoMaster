@@ -65,7 +65,12 @@ async def start_booking(message: Message, state: FSMContext, bot: Bot):
                         await state.update_data(last_message_id=sent_message.message_id)
                     await state.clear()
     except Exception as e:
-        await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка проверки пользователя", e)
+        await handle_error(message,
+                           state,
+                           bot,
+                           "Ошибка. Попробуйте снова. 😔",
+                           "Ошибка проверки пользователя", e
+                           )
 
 @service_booking_router.callback_query(ServiceBookingStates.AwaitingAuto, F.data.startswith("auto_"))
 async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -76,8 +81,12 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
             auto = session.query(Auto).get(auto_id)
             if not auto:
                 await handle_error(
-                    callback, state, bot,
-                    "Автомобиль не найден. Попробуйте снова. 🚗", f"Автомобиль не найден для auto_id={auto_id}", Exception("Автомобиль не найден")
+                    callback,
+                    state,
+                    bot,
+                    "Автомобиль не найден. Попробуйте снова. 🚗",
+                    f"Автомобиль не найден для auto_id={auto_id}",
+                    Exception("Автомобиль не найден")
                 )
                 await callback.answer()
                 return
@@ -110,7 +119,12 @@ async def process_auto_selection(callback: CallbackQuery, state: FSMContext, bot
                 )
             await callback.answer()
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка выбора автомобиля", e)
+        await handle_error(callback,
+                           state,
+                           bot,
+                           "Ошибка. Попробуйте снова. 😔",
+                           "Ошибка выбора автомобиля", e
+                           )
         await callback.answer()
 
 @service_booking_router.callback_query(F.data == "cancel")
@@ -279,8 +293,12 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
             auto = session.query(Auto).get(data["auto_id"])
             if not auto:
                 await handle_error(
-                    callback, state, bot,
-                    "Автомобиль не найден. Начните заново. 🚗", f"Автомобиль не найден для auto_id={data['auto_id']}", Exception("Автомобиль не найден")
+                    callback,
+                    state,
+                    bot,
+                    "Автомобиль не найден. Начните заново. 🚗",
+                    f"Автомобиль не найден для auto_id={data['auto_id']}",
+                    Exception("Автомобиль не найден")
                 )
                 await callback.answer()
                 return
@@ -315,7 +333,12 @@ async def process_time_selection(callback: CallbackQuery, state: FSMContext, bot
             await state.clear()
             await callback.answer()
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка записи. Попробуйте снова. 😔", "Ошибка создания записи", e)
+        await handle_error(callback,
+                           state,
+                           bot,
+                           "Ошибка записи. Попробуйте снова. 😔",
+                           "Ошибка создания записи", e
+                           )
         await callback.answer()
 
 @service_booking_router.callback_query(F.data.startswith("confirm_booking_"))
@@ -336,14 +359,21 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 "Ваша запись подтверждена! ✅"
             )
             if not success:
-                logger.warning(f"Не удалось уведомить пользователя user_id={user.telegram_id} о подтверждении записи booking_id={booking_id}")
+                logger.warning(f"Не удалось уведомить пользователя user_id={user.telegram_id} о "
+                               f"подтверждении записи booking_id={booking_id}"
+                               )
             await callback.message.edit_text(
                 callback.message.text + "\n<b>Статус:</b> Подтверждено ✅",
                 parse_mode="HTML"
             )
             await callback.answer("Запись подтверждена. ✅")
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка подтверждения записи booking_id={booking_id}", e)
+        await handle_error(callback,
+                           state,
+                           bot,
+                           "Ошибка. Попробуйте снова. 😔",
+                           f"Ошибка подтверждения записи booking_id={booking_id}", e
+                           )
         await callback.answer()
 
 @service_booking_router.callback_query(F.data.startswith("reschedule_booking_"))
@@ -368,7 +398,12 @@ async def reschedule_booking(callback: CallbackQuery, state: FSMContext, bot: Bo
             logger.info(f"Мастер запросил новое время для записи booking_id={booking_id}")
         await callback.answer()
     except Exception as e:
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка переноса записи booking_id={booking_id}", e)
+        await handle_error(callback,
+                           state,
+                           bot,
+                           "Ошибка. Попробуйте снова. 😔",
+                           f"Ошибка переноса записи booking_id={booking_id}", e
+                           )
         await callback.answer()
 
 @service_booking_router.message(ServiceBookingStates.AwaitingMasterTime, F.text)
@@ -430,7 +465,8 @@ async def process_master_time(message: Message, state: FSMContext, bot: Bot):
     except Exception as e:
         await handle_error(
             message, state, bot,
-            "Критическая ошибка. Попробуйте снова. 😔", f"Ошибка обработки нового времени для записи booking_id={booking_id}", e
+            "Критическая ошибка. Попробуйте снова. 😔",
+            f"Ошибка обработки нового времени для записи booking_id={booking_id}", e
         )
 
 @service_booking_router.message(ServiceBookingStates.AwaitingMasterResponse, F.text)
@@ -468,8 +504,12 @@ async def process_master_rejection(message: Message, state: FSMContext, bot: Bot
             await state.clear()
     except Exception as e:
         await handle_error(
-            message, state, bot,
-            "Критическая ошибка. Попробуйте снова. 😔", f"Ошибка обработки отказа для записи booking_id={booking_id}", e
+            message,
+            state,
+            bot,
+            "Критическая ошибка. Попробуйте снова. 😔",
+            f"Ошибка обработки отказа для записи booking_id={booking_id}",
+            e
         )
 
 @service_booking_router.callback_query(F.data.startswith("confirm_reschedule_"))
@@ -483,7 +523,10 @@ async def process_user_confirmation(callback: CallbackQuery, state: FSMContext, 
                 await callback.answer()
                 return
             if str(callback.from_user.id) != str(booking.user.telegram_id):
-                logger.warning(f"Несанкционированный доступ: user_id={callback.from_user.id} != telegram_id={booking.user.telegram_id}")
+                logger.warning(f"Несанкционированный доступ: "
+                               f"user_id={callback.from_user.id} "
+                               f"!= telegram_id={booking.user.telegram_id}"
+                               )
                 await callback.answer("Доступ только для владельца записи. 🔒")
                 return
             booking.status = BookingStatus.CONFIRMED
@@ -509,8 +552,11 @@ async def process_user_confirmation(callback: CallbackQuery, state: FSMContext, 
             await state.clear()
     except Exception as e:
         await handle_error(
-            callback, state, bot,
-            "Ошибка. Попробуйте снова. 😔", f"Ошибка подтверждения переноса для записи booking_id={booking_id}", e
+            callback,
+            state,
+            bot,
+            "Ошибка. Попробуйте снова. 😔",
+            f"Ошибка подтверждения переноса для записи booking_id={booking_id}", e
         )
         await callback.answer()
 
