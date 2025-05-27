@@ -9,7 +9,7 @@ async def analyze_text_description(description: str) -> str:
     """Анализирует текстовое описание проблемы через Yandex GPT API."""
     try:
         model_uri = f"gpt://{YANDEX_FOLDER_ID}/yandexgpt"
-        logger.info(f"Sending request to Yandex GPT with modelUri: {model_uri}")
+        logger.info(f"Отправка запроса на Yandex GPT с Modeluri: {model_uri}")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
@@ -37,10 +37,10 @@ async def analyze_text_description(description: str) -> str:
             )
             if response.status_code == 200:
                 result = response.json()["result"]["alternatives"][0]["message"]["text"]
-                logger.info(f"Yandex GPT response: {result[:100]}")
+                logger.info(f"Yandex gpt response: {result[:100]}")
                 return result[:500]  # Ограничиваем длину ответа
             else:
-                logger.error(f"Yandex GPT API error: {response.status_code} - {response.text}")
+                logger.error(f"Ошибка API yandex gpt api: {response.status_code} - {response.text}")
                 return f"Анализ текста недоступен (ошибка {response.status_code}). Описание: {description}"
     except Exception as e:
         logger.error(f"Ошибка Yandex GPT API: {str(e)}")

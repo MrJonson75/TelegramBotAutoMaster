@@ -25,7 +25,12 @@ async def send_message(bot: Bot, chat_id: str, message_type: str, message: str =
             # Если photo — строка и это путь к файлу, преобразуем в FSInputFile
             if isinstance(photo, str) and os.path.isfile(photo):
                 photo = FSInputFile(path=photo)
-            return await bot.send_photo(chat_id=chat_id, photo=photo, caption=message, parse_mode="HTML", **kwargs)
+            return await bot.send_photo(chat_id=chat_id,
+                                        photo=photo,
+                                        caption=message,
+                                        parse_mode="HTML",
+                                        **kwargs
+                                        )
         logger.warning(f"Неизвестный тип сообщения: {message_type}")
         return None
     except Exception as e:
@@ -43,7 +48,11 @@ async def handle_error(
     """Обрабатывает ошибки и отправляет сообщение пользователю."""
     logger.error(f"{log_message}: {str(exception)}")
     chat_id = str(source.chat.id) if isinstance(source, Message) else str(source.message.chat.id)
-    sent_message = await send_message(bot, chat_id, "text", user_message, reply_markup=Keyboards.main_menu_kb())
+    sent_message = await send_message(bot,
+                                      chat_id,
+                                      "text", user_message,
+                                      reply_markup=Keyboards.main_menu_kb()
+                                      )
     if sent_message:
         await state.update_data(last_message_id=sent_message.message_id)
     await state.clear()
@@ -93,7 +102,12 @@ async def check_user_and_autos(
         return user, autos
     except Exception as e:
         logger.error(f"Ошибка проверки пользователя {user_id} в контексте {context}: {str(e)}")
-        await handle_error(source, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка проверки пользователя {context}", e)
+        await handle_error(source,
+                           state,
+                           bot,
+                           "Ошибка. Попробуйте снова. 😔",
+                           f"Ошибка проверки пользователя {context}", e
+                           )
         return None, []
 
 async def check_user_registered(
@@ -122,7 +136,12 @@ async def check_user_registered(
         return user
     except Exception as e:
         logger.error(f"Ошибка проверки пользователя {user_id} в контексте {context}: {str(e)}")
-        await handle_error(source, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка проверки пользователя {context}", e)
+        await handle_error(source,
+                           state,
+                           bot,
+                           "Ошибка. Попробуйте снова. 😔",
+                           f"Ошибка проверки пользователя {context}", e
+                           )
         return None
 
 def master_only(func):
