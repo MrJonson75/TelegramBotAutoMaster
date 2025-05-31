@@ -29,8 +29,10 @@ class ProfileStates(StatesGroup):
     RegisterAwaitingPhone = State()
     RegisterConfirm = State()
     ViewingBooking = State()
+    AwaitingReviewRating = State()  # Для выбора рейтинга
     AwaitingReviewText = State()  # Для ввода текста отзыва
     AwaitingReviewPhotos = State()  # Для загрузки фотографий
+    AwaitingReviewVideo = State()  # Для загрузки видео
     ConfirmReview = State()  # Для подтверждения отзыва
 
 PROFILE_PROGRESS_STEPS = {
@@ -989,7 +991,6 @@ async def delete_booking(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
 @profile_router.callback_query(F.data.startswith("leave_review_"))
 async def start_leave_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Начало процесса оставления отзыва."""
     booking_id = int(callback.data.replace("leave_review_", ""))
     logger.info(f"Пользователь {callback.from_user.id} начал оставление отзыва для записи #{booking_id}")
     try:
@@ -1010,38 +1011,62 @@ async def start_leave_review(callback: CallbackQuery, state: FSMContext, bot: Bo
             if booking.status != BookingStatus.COMPLETED or booking.review:
                 await callback.answer("Отзыв можно оставить только для выполненных записей без отзыва.")
                 return
-            await state.update_data(booking_id=booking_id, review_photos=[])
+            await state.update_data(booking_id=booking_id, review_photos=[], review_video=None)
             sent_message = await send_message(
                 bot, str(callback.message.chat.id), "photo",
-                (await get_progress_bar(ProfileStates.AwaitingReviewText, PROFILE_PROGRESS_STEPS,
-                                        style="emoji")).format(
-                    message="⭐ Напишите ваш отзыв о выполненной услуге:"
+                (await get_progress_bar(ProfileStates.AwaitingReviewRating, PROFILE_PROGRESS_STEPS, style="emoji")).format(
+                    message="⭐ Выберите рейтинг (1–5):"
                 ),
                 photo=get_photo_path("leave_review"),
-                reply_markup=Keyboards.cancel_kb()
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=str(i), callback_data=f"rating_{i}") for i in range(1, 6)],
+                    [InlineKeyboardButton(text="Отмена 🚫", callback_data="cancel_review")]
+                ])
             )
             if sent_message:
                 await state.update_data(last_message_id=sent_message.message_id)
-                await state.set_state(ProfileStates.AwaitingReviewText)
+            await state.set_state(ProfileStates.AwaitingReviewRating)
             await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка начала отзыва для записи #{booking_id}: {str(e)}")
-        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка начала отзыва #{booking_id}",
-                           e)
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", f"Ошибка начала отзыва #{booking_id}", e)
         await callback.answer()
 
+@profile_router.callback_query(ProfileStates.AwaitingReviewRating, F.data.startswith("rating_"))
+async def process_review_rating(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    rating = int(callback.data.replace("rating_", ""))
+    logger.info(f"Пользователь {callback.from_user.id} выбрал рейтинг {rating}")
+    try:
+        if not 1 <= rating <= 5:
+            await callback.answer("Некорректный рейтинг.")
+            return
+        await state.update_data(review_rating=rating)
+        sent_message = await send_message(
+            bot, str(callback.message.chat.id), "photo",
+            (await get_progress_bar(ProfileStates.AwaitingReviewText, PROFILE_PROGRESS_STEPS, style="emoji")).format(
+                message="⭐ Напишите ваш отзыв о выполненной услуге:"
+            ),
+            photo=get_photo_path("leave_review"),
+            reply_markup=Keyboards.cancel_kb()
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+        await state.set_state(ProfileStates.AwaitingReviewText)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка обработки рейтинга для {callback.from_user.id}: {str(e)}")
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка обработки рейтинга", e)
+        await callback.answer()
 
 @profile_router.message(ProfileStates.AwaitingReviewText, F.text)
 async def process_review_text(message: Message, state: FSMContext, bot: Bot):
-    """Обработка текста отзыва."""
     logger.info(f"Пользователь {message.from_user.id} ввёл текст отзыва")
     try:
         text = message.text.strip()
         if len(text) < 10 or len(text) > 500:
             sent_message = await send_message(
                 bot, str(message.chat.id), "photo",
-                (await get_progress_bar(ProfileStates.AwaitingReviewText, PROFILE_PROGRESS_STEPS,
-                                        style="emoji")).format(
+                (await get_progress_bar(ProfileStates.AwaitingReviewText, PROFILE_PROGRESS_STEPS, style="emoji")).format(
                     message="Отзыв должен быть от 10 до 500 символов. Введите снова: ⭐"
                 ),
                 photo=get_photo_path("leave_review"),
@@ -1054,11 +1079,11 @@ async def process_review_text(message: Message, state: FSMContext, bot: Bot):
         sent_message = await send_message(
             bot, str(message.chat.id), "photo",
             (await get_progress_bar(ProfileStates.AwaitingReviewPhotos, PROFILE_PROGRESS_STEPS, style="emoji")).format(
-                message="📷 Загрузите до 3 фотографий (по одной) или нажмите 'Готово':"
+                message="📷 Загрузите до 3 фотографий (по одной, до 10 МБ) или нажмите 'Далее':"
             ),
             photo=get_photo_path("upload_photos"),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Готово", callback_data="review_photos_done")]
+                [InlineKeyboardButton(text="➡ Далее", callback_data="review_photos_done")]
             ])
         )
         if sent_message:
@@ -1068,21 +1093,25 @@ async def process_review_text(message: Message, state: FSMContext, bot: Bot):
         logger.error(f"Ошибка обработки текста отзыва для {message.from_user.id}: {str(e)}")
         await handle_error(message, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка обработки текста отзыва", e)
 
-
 @profile_router.message(ProfileStates.AwaitingReviewPhotos, F.photo)
 async def process_review_photo(message: Message, state: FSMContext, bot: Bot):
-    """Обработка загруженной фотографии для отзыва."""
     logger.info(f"Пользователь {message.from_user.id} загрузил фото для отзыва")
     try:
         data = await state.get_data()
         photos = data.get("review_photos", [])
         if len(photos) >= 3:
-            await message.answer("Максимум 3 фотографии. Нажмите 'Готово'.",
+            await message.answer("Максимум 3 фотографии. Нажмите 'Далее'.",
                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                     [InlineKeyboardButton(text="✅ Готово", callback_data="review_photos_done")]
+                                     [InlineKeyboardButton(text="➡ Далее", callback_data="review_photos_done")]
                                  ]))
             return
-        photo = message.photo[-1]  # Берём фото наилучшего качества
+        photo = message.photo[-1]
+        if photo.file_size > 10 * 1024 * 1024:  # 10 МБ
+            await message.answer("Фото слишком большое (макс. 10 МБ). Загрузите другое или нажмите 'Далее'.",
+                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                     [InlineKeyboardButton(text="➡ Далее", callback_data="review_photos_done")]
+                                 ]))
+            return
         file_info = await bot.get_file(photo.file_id)
         file_path = f"{UPLOAD_USER_DIR}/review_{message.from_user.id}_{len(photos) + 1}_{photo.file_id}.jpg"
         await bot.download_file(file_info.file_path, file_path)
@@ -1092,11 +1121,11 @@ async def process_review_photo(message: Message, state: FSMContext, bot: Bot):
         sent_message = await send_message(
             bot, str(message.chat.id), "photo",
             (await get_progress_bar(ProfileStates.AwaitingReviewPhotos, PROFILE_PROGRESS_STEPS, style="emoji")).format(
-                message=f"📷 Фото загружено! Осталось загрузить до {remaining} фото или нажмите 'Готово':"
+                message=f"📷 Фото загружено! Осталось загрузить до {remaining} фото или нажмите 'Далее':"
             ),
             photo=get_photo_path("upload_photos"),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Готово", callback_data="review_photos_done")]
+                [InlineKeyboardButton(text="➡ Далее", callback_data="review_photos_done")]
             ])
         )
         if sent_message:
@@ -1106,23 +1135,89 @@ async def process_review_photo(message: Message, state: FSMContext, bot: Bot):
         await handle_error(message, state, bot, "Ошибка загрузки фото. Попробуйте снова. 😔",
                            "Ошибка загрузки фото отзыва", e)
 
-
 @profile_router.callback_query(ProfileStates.AwaitingReviewPhotos, F.data == "review_photos_done")
-async def confirm_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Подтверждение отзыва."""
+async def proceed_to_video(callback: CallbackQuery, state: FSMContext, bot: Bot):
     logger.info(f"Пользователь {callback.from_user.id} завершил загрузку фото для отзыва")
+    try:
+        sent_message = await send_message(
+            bot, str(callback.message.chat.id), "photo",
+            (await get_progress_bar(ProfileStates.AwaitingReviewVideo, PROFILE_PROGRESS_STEPS, style="emoji")).format(
+                message="🎥 Загрузите видео (до 50 МБ) или нажмите 'Готово':"
+            ),
+            photo=get_photo_path("upload_video"),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Готово", callback_data="review_video_done")]
+            ])
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+            await state.set_state(ProfileStates.AwaitingReviewVideo)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка перехода к загрузке видео для {callback.from_user.id}: {str(e)}")
+        await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка перехода к видео", e)
+        await callback.answer()
+
+@profile_router.message(ProfileStates.AwaitingReviewVideo, F.video)
+async def process_review_video(message: Message, state: FSMContext, bot: Bot):
+    logger.info(f"Пользователь {message.from_user.id} загрузил видео для отзыва")
+    try:
+        data = await state.get_data()
+        if data.get("review_video"):
+            await message.answer("Можно загрузить только одно видео. Нажмите 'Готово'.",
+                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                     [InlineKeyboardButton(text="✅ Готово", callback_data="review_video_done")]
+                                 ]))
+            return
+        video = message.video
+        if video.file_size > 50 * 1024 * 1024:  # 50 МБ
+            await message.answer("Видео слишком большое (макс. 50 МБ). Загрузите другое или нажмите 'Готово'.",
+                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                     [InlineKeyboardButton(text="✅ Готово", callback_data="review_video_done")]
+                                 ]))
+            return
+        file_info = await bot.get_file(video.file_id)
+        file_path = f"{UPLOAD_USER_DIR}/review_{message.from_user.id}_video_{video.file_id}.mp4"
+        await bot.download_file(file_info.file_path, file_path)
+        await state.update_data(review_video=file_path)
+        sent_message = await send_message(
+            bot, str(message.chat.id), "photo",
+            (await get_progress_bar(ProfileStates.AwaitingReviewVideo, PROFILE_PROGRESS_STEPS, style="emoji")).format(
+                message="🎥 Видео загружено! Нажмите 'Готово':"
+            ),
+            photo=get_photo_path("upload_video"),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Готово", callback_data="review_video_done")]
+            ])
+        )
+        if sent_message:
+            await state.update_data(last_message_id=sent_message.message_id)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки видео отзыва для {message.from_user.id}: {str(e)}")
+        await handle_error(message, state, bot, "Ошибка загрузки видео. Попробуйте снова. 😔",
+                           "Ошибка загрузки видео отзыва", e)
+
+@profile_router.callback_query(ProfileStates.AwaitingReviewVideo, F.data == "review_video_done")
+async def confirm_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    logger.info(f"Пользователь {callback.from_user.id} завершил загрузку медиа для отзыва")
     try:
         data = await state.get_data()
         review_text = data.get("review_text")
+        review_rating = data.get("review_rating")
         review_photos = data.get("review_photos", [])
+        review_video = data.get("review_video")
         booking_id = data.get("booking_id")
         response = (
-            f"⭐ <b>Ваш отзыв:</b>\n{review_text}\n\n"
+            f"⭐ <b>Ваш отзыв:</b>\n"
+            f"Рейтинг: {'⭐' * review_rating}\n"
+            f"Текст: {review_text}\n\n"
             f"📷 Загружено фотографий: {len(review_photos)}\n"
+            f"🎥 Загружено видео: {'1' if review_video else '0'}\n"
             "Сохранить отзыв?"
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Сохранить", callback_data="save_review")],
+            [InlineKeyboardButton(text="📸 Предпросмотр медиа", callback_data="preview_media")],
             [InlineKeyboardButton(text="🚫 Отмена", callback_data="cancel_review")]
         ])
         sent_message = await send_message(
@@ -1140,24 +1235,46 @@ async def confirm_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка подтверждения отзыва", e)
         await callback.answer()
 
+@profile_router.callback_query(ProfileStates.ConfirmReview, F.data == "preview_media")
+async def preview_review_media(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    logger.info(f"Пользователь {callback.from_user.id} запросил предпросмотр медиа")
+    try:
+        data = await state.get_data()
+        review_photos = data.get("review_photos", [])
+        review_video = data.get("review_video")
+        if not review_photos and not review_video:
+            await callback.answer("Нет медиа для предпросмотра.")
+            return
+        for photo in review_photos:
+            await send_message(bot, str(callback.message.chat.id), "photo", photo=photo)
+        if review_video:
+            await send_message(bot, str(callback.message.chat.id), "video", video=review_video)
+        await callback.answer("Медиа отправлены для предпросмотра.")
+    except Exception as e:
+        logger.error(f"Ошибка предпросмотра медиа для {callback.from_user.id}: {str(e)}")
+        await handle_error(callback, state, bot, "Ошибка предпросмотра. 😔", "Ошибка предпросмотра медиа", e)
+        await callback.answer()
 
 @profile_router.callback_query(ProfileStates.ConfirmReview, F.data == "save_review")
 async def save_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Сохранение отзыва."""
     logger.info(f"Пользователь {callback.from_user.id} сохраняет отзыв")
     try:
         data = await state.get_data()
         review_text = data.get("review_text")
+        review_rating = data.get("review_rating")
         review_photos = data.get("review_photos", [])
+        review_video = data.get("review_video")
         booking_id = data.get("booking_id")
         with Session() as session:
             review = Review(
                 user_id=session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first().id,
                 booking_id=booking_id,
                 text=review_text,
+                rating=review_rating,
                 photo1=review_photos[0] if len(review_photos) > 0 else None,
                 photo2=review_photos[1] if len(review_photos) > 1 else None,
-                photo3=review_photos[2] if len(review_photos) > 2 else None
+                photo3=review_photos[2] if len(review_photos) > 2 else None,
+                video=review_video
             )
             session.add(review)
             session.commit()
@@ -1182,30 +1299,34 @@ async def save_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 await state.set_state(ProfileStates.MainMenu)
             await callback.answer()
 
-            # Уведомление мастера
             booking = session.query(Booking).get(booking_id)
             user = session.query(User).get(booking.user_id)
             auto = session.query(Auto).get(booking.auto_id)
             await send_booking_notification(
                 bot, ADMIN_ID, booking, user, auto,
-                f"Новый отзыв для записи #{booking_id}:\n{review_text}\nФотографий: {len(review_photos)}"
+                f"Новый отзыв для записи #{booking_id}:\n"
+                f"Рейтинг: {'⭐' * review_rating}\n"
+                f"{review_text}\n"
+                f"Фотографий: {len(review_photos)}\n"
+                f"Видео: {'1' if review_video else '0'}"
             )
     except Exception as e:
         logger.error(f"Ошибка сохранения отзыва для {callback.from_user.id}: {str(e)}")
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка сохранения отзыва", e)
         await callback.answer()
 
-
 @profile_router.callback_query(ProfileStates.ConfirmReview, F.data == "cancel_review")
 async def cancel_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Отмена отзыва."""
     logger.info(f"Пользователь {callback.from_user.id} отменил отзыв")
     try:
         data = await state.get_data()
         review_photos = data.get("review_photos", [])
+        review_video = data.get("review_video")
         for photo in review_photos:
             if os.path.exists(photo):
                 os.remove(photo)
+        if review_video and os.path.exists(review_video):
+            os.remove(review_video)
         response = "📜 <b>История ваших записей</b>\nВыберите запись для просмотра:"
         with Session() as session:
             user = session.query(User).filter_by(telegram_id=str(callback.from_user.id)).first()
@@ -1235,8 +1356,6 @@ async def cancel_review(callback: CallbackQuery, state: FSMContext, bot: Bot):
         logger.error(f"Ошибка отмены отзыва для {callback.from_user.id}: {str(e)}")
         await handle_error(callback, state, bot, "Ошибка. Попробуйте снова. 😔", "Ошибка отмены отзыва", e)
         await callback.answer()
-
-
 
 
 @profile_router.callback_query(F.data == "back_to_main")

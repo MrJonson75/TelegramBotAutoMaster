@@ -57,9 +57,11 @@ class Review(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False, unique=True)
     text = Column(Text, nullable=False)
+    rating = Column(Integer, nullable=True)  # 1–5
     photo1 = Column(String, nullable=True)  # Путь к первой фотографии
     photo2 = Column(String, nullable=True)  # Путь к второй фотографии
     photo3 = Column(String, nullable=True)  # Путь к третьей фотографии
+    video = Column(String, nullable=True)  # Путь к видео
     created_at = Column(Date, nullable=False, default=datetime.now)
     user = relationship("User", back_populates="reviews")
     booking = relationship("Booking", back_populates="review")
