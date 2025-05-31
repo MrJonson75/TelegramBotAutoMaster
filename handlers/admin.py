@@ -8,8 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from config import ADMIN_ID
 from database import Session, User, Auto, Booking, BookingStatus
 from keyboards.main_kb import Keyboards
-from utils import setup_logger
-from handlers.service_utils import send_booking_notification
+from utils import send_booking_notification, setup_logger
 
 logger = setup_logger(__name__)
 admin_router = Router()

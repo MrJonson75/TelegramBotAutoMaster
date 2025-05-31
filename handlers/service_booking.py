@@ -3,17 +3,16 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from config import MESSAGES, SERVICES, get_photo_path, ADMIN_ID
 from keyboards.main_kb import Keyboards
-from utils import setup_logger, reminder_manager
 from .profile import ProfileStates
 from database import User, Auto, Booking, BookingStatus, Session
 from datetime import datetime
 import asyncio
 import re
 from .states import ServiceBookingStates, SERVICE_PROGRESS_STEPS
-from .service_utils import (
+from utils import (
     get_progress_bar, send_message, handle_error, check_user_and_autos,
     master_only, get_booking_context, send_booking_notification, set_user_state,
-    notify_master, schedule_reminder, schedule_user_reminder
+    notify_master, schedule_reminder, schedule_user_reminder, setup_logger, reminder_manager
 )
 
 

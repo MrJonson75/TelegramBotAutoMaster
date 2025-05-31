@@ -7,10 +7,10 @@ import enum
 Base = declarative_base()
 
 class BookingStatus(enum.Enum):
-    PENDING = "pending"
-    CONFIRMED = "confirmed"
-    REJECTED = "rejected"
-    CANCELLED = "cancelled"
+    PENDING = "pending"    # в ожидании
+    CONFIRMED = "confirmed"    # подтвержденный
+    REJECTED = "rejected"    # отклоненный
+    CANCELLED = "cancelled"    # отменен
     COMPLETED = "completed"  # Новый статус
 
 class User(Base):

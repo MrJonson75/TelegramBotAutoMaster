@@ -1,14 +1,15 @@
 import os
 from datetime import datetime
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup,
+                           InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from pydantic import ValidationError
 from keyboards.main_kb import Keyboards
-from utils import setup_logger, UserInput, AutoInput
 from database import User, Auto, Booking, BookingStatus, Session, Review
-from .service_utils import send_message, handle_error, get_progress_bar, send_booking_notification
+from utils import (send_message, handle_error, get_progress_bar,
+                   send_booking_notification, setup_logger, UserInput, AutoInput)
 from config import get_photo_path, ADMIN_ID, UPLOAD_USER_DIR
 
 profile_router = Router()
@@ -247,7 +248,7 @@ async def edit_profile(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @profile_router.message(ProfileStates.AwaitingFirstName, F.text)
 async def process_first_name(message: Message, state: FSMContext, bot: Bot):
     """Обработка имени."""
-    from .service_utils import process_user_input
+    from utils.service_utils import process_user_input
     await process_user_input(
         message, state, bot,
         UserInput.validate_first_name, "first_name",
@@ -260,7 +261,7 @@ async def process_first_name(message: Message, state: FSMContext, bot: Bot):
 @profile_router.message(ProfileStates.AwaitingLastName, F.text)
 async def process_last_name(message: Message, state: FSMContext, bot: Bot):
     """Обработка фамилии."""
-    from .service_utils import process_user_input
+    from utils.service_utils import process_user_input
     def validate_last_name_or_none(value: str):
         if value.strip() == "":
             return None
@@ -406,7 +407,7 @@ async def add_auto(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @profile_router.message(ProfileStates.AwaitingAutoBrand, F.text)
 async def process_auto_brand(message: Message, state: FSMContext, bot: Bot):
     """Обработка марки автомобиля."""
-    from .service_utils import process_user_input
+    from utils.service_utils import process_user_input
     await process_user_input(
         message, state, bot,
         AutoInput.validate_brand, "brand",
@@ -450,7 +451,7 @@ async def process_auto_year(message: Message, state: FSMContext, bot: Bot):
 @profile_router.message(ProfileStates.AwaitingAutoVin, F.text)
 async def process_auto_vin(message: Message, state: FSMContext, bot: Bot):
     """Обработка VIN-номера."""
-    from .service_utils import process_user_input
+    from utils.service_utils import process_user_input
     await process_user_input(
         message, state, bot,
         AutoInput.validate_vin, "vin",

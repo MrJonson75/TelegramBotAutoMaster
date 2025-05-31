@@ -5,7 +5,6 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.orm import Session
 from database import User, Auto, Booking, BookingStatus
 from config import ADMIN_ID, REMINDER_TIME_MINUTES
-from keyboards.main_kb import Keyboards
 from utils import setup_logger
 from datetime import datetime, timedelta
 import os
@@ -46,6 +45,7 @@ async def handle_error(
     exception: Exception
 ) -> None:
     """Обрабатывает ошибки и отправляет сообщение пользователю."""
+    from keyboards.main_kb import Keyboards
     logger.error(f"{log_message}: {str(exception)}")
     chat_id = str(source.chat.id) if isinstance(source, Message) else str(source.message.chat.id)
     sent_message = await send_message(bot,
@@ -84,6 +84,7 @@ async def check_user_and_autos(
     context: str = "booking"
 ) -> Tuple[Optional[User], List[Auto]]:
     """Проверяет, зарегистрирован ли пользователь и есть ли у него автомобили."""
+    from keyboards.main_kb import Keyboards
     try:
         user = session.query(User).filter_by(telegram_id=user_id).first()
         if not user:
@@ -119,6 +120,7 @@ async def check_user_registered(
     context: str = "action"
 ) -> Optional[User]:
     """Проверяет, зарегистрирован ли пользователь."""
+    from keyboards.main_kb import Keyboards
     try:
         user = session.query(User).filter_by(telegram_id=user_id).first()
         if not user:
