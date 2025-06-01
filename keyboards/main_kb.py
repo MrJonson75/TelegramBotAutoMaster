@@ -218,7 +218,8 @@ class Keyboards:
             status_map = {
                 BookingStatus.PENDING: "⏳ Ожидает",
                 BookingStatus.CONFIRMED: "✅ Подтверждено",
-                BookingStatus.REJECTED: "❌ Отклонено"
+                BookingStatus.REJECTED: "❌ Отклонено",
+                BookingStatus.CANCELLED: "🚫 Отменено"
             }
             status = status_map.get(booking.status, "Неизвестно")
             text = (

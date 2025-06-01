@@ -1,35 +1,37 @@
 from aiogram.fsm.state import State, StatesGroup
 
-class RepairBookingStates(StatesGroup):
-    AwaitingAuto = State()
-    AwaitingDescription = State()
-    AwaitingPhotos = State()
-    AwaitingDate = State()
-    AwaitingTime = State()
-    AwaitingMasterResponse = State()
-    AwaitingMasterTime = State()
-    AwaitingUserConfirmation = State()
-
-REPAIR_PROGRESS_STEPS = {
-    str(RepairBookingStates.AwaitingAuto): 1,
-    str(RepairBookingStates.AwaitingDescription): 2,
-    str(RepairBookingStates.AwaitingPhotos): 3,
-    str(RepairBookingStates.AwaitingDate): 4,
-    str(RepairBookingStates.AwaitingTime): 5
-}
-
 class ServiceBookingStates(StatesGroup):
     AwaitingAuto = State()
     AwaitingService = State()
     AwaitingDate = State()
     AwaitingTime = State()
-    AwaitingMasterResponse = State()
     AwaitingMasterTime = State()
+    AwaitingMasterResponse = State()
+    AwaitingUserConfirmation = State()
+
+class RepairBookingStates(StatesGroup):
+    AwaitingAuto = State()
+    AwaitingProblemDescription = State()
+    AwaitingPhotos = State()
+    AwaitingDate = State()
+    AwaitingTime = State()
+    AwaitingMasterEvaluation = State()
+    AwaitingMasterRejectionReason = State()
+    AwaitingMasterTime = State()
+    AwaitingMasterTimeSelection = State()  # Новое состояние для выбора времени мастером
     AwaitingUserConfirmation = State()
 
 SERVICE_PROGRESS_STEPS = {
-    str(ServiceBookingStates.AwaitingAuto): 1,
-    str(ServiceBookingStates.AwaitingService): 2,
-    str(ServiceBookingStates.AwaitingDate): 3,
-    str(ServiceBookingStates.AwaitingTime): 4
+    ServiceBookingStates.AwaitingAuto: 1,
+    ServiceBookingStates.AwaitingService: 2,
+    ServiceBookingStates.AwaitingDate: 3,
+    ServiceBookingStates.AwaitingTime: 4,
+}
+
+REPAIR_PROGRESS_STEPS = {
+    RepairBookingStates.AwaitingAuto: 1,
+    RepairBookingStates.AwaitingProblemDescription: 2,
+    RepairBookingStates.AwaitingPhotos: 3,
+    RepairBookingStates.AwaitingDate: 4,
+    RepairBookingStates.AwaitingTime: 5,
 }

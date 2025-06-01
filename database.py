@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, ForeignKey, Date, Time, Enum, create_engine, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, Date, Time, Enum, create_engine, Text, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import enum
@@ -7,11 +7,11 @@ import enum
 Base = declarative_base()
 
 class BookingStatus(enum.Enum):
-    PENDING = "pending"    # в ожидании
-    CONFIRMED = "confirmed"    # подтвержденный
-    REJECTED = "rejected"    # отклоненный
-    CANCELLED = "cancelled"    # отменен
-    COMPLETED = "completed"  # Новый статус
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
 
 class User(Base):
     __tablename__ = "users"
@@ -43,6 +43,12 @@ class Booking(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     auto_id = Column(Integer, ForeignKey("autos.id"), nullable=False)
     service_name = Column(String, nullable=False)
+    problem_description = Column(Text, nullable=True)
+    photo1 = Column(String, nullable=True)
+    photo2 = Column(String, nullable=True)
+    photo3 = Column(String, nullable=True)
+    cost = Column(Float, nullable=True)  # Добавлено
+    service_duration = Column(Integer, nullable=True)  # Добавлено
     date = Column(Date, nullable=False)
     time = Column(Time, nullable=False)
     status = Column(Enum(BookingStatus), default=BookingStatus.PENDING, nullable=False)
@@ -57,11 +63,11 @@ class Review(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False, unique=True)
     text = Column(Text, nullable=False)
-    rating = Column(Integer, nullable=True)  # 1–5
-    photo1 = Column(String, nullable=True)  # Путь к первой фотографии
-    photo2 = Column(String, nullable=True)  # Путь к второй фотографии
-    photo3 = Column(String, nullable=True)  # Путь к третьей фотографии
-    video = Column(String, nullable=True)  # Путь к видео
+    rating = Column(Integer, nullable=True)
+    photo1 = Column(String, nullable=True)
+    photo2 = Column(String, nullable=True)
+    photo3 = Column(String, nullable=True)
+    video = Column(String, nullable=True)
     created_at = Column(Date, nullable=False, default=datetime.now)
     user = relationship("User", back_populates="reviews")
     booking = relationship("Booking", back_populates="review")

@@ -12,5 +12,6 @@ SERVICES = [
     {"name": "Диагностика ходовой", "duration_minutes": 45, "price": 1500},
     {"name": "Замена масла в АКПП", "duration_minutes": 90, "price": 3500},
     {"name": "Замена колодок", "duration_minutes": 90, "price": 2500},
-    {"name": "Подача дизельного топлива", "duration_minutes": 20, "price": 2000}
+    {"name": "Подача дизельного топлива", "duration_minutes": 20, "price": 2000},
+    {"name": "Ремонт", "duration_minutes": 60, "price": 0}
 ]
